@@ -770,9 +770,9 @@
     </datalist>
     <div class="grid2">
       <div class="field"><label>Price *</label><input type="number" id="npPrice" oninput="npCalc()"></div>
-      <div class="field"><label>Markup %</label><input type="number" id="npMarkup" value="0" oninput="npCalc()"></div>
+      <div class="field" id="npMarkupField"><label>Markup %</label><input type="number" id="npMarkup" value="0" oninput="npCalc()"></div>
     </div>
-    <div class="method-row" style="margin:0 0 10px;">
+    <div class="method-row" id="npMarkupQuickRow" style="margin:0 0 10px;">
       <button type="button" class="method-btn" onclick="setNpMarkup(30)">30%</button>
       <button type="button" class="method-btn" onclick="setNpMarkup(35)">35%</button>
     </div>
@@ -1754,7 +1754,6 @@ function buildCardReceiptHTML(partyId, paymentId){
     <div class="cr-desc"><b>Transaction Description :</b> received via ${payment?payment.method:'-'}</div>
     ${currentBalance>0 ? `<div class="cr-note">⚠️ Agli qist ki akhri tareekh (grace) se pehle payment na hui to ${OVERDUE_CHARGE_PERCENT}% overdue charges lagenge.</div>` : ''}
     <div class="cr-sign-wrap">
-      <img class="cr-sign-stamp" src="data:image/jpeg;base64,${STAMP_IMG_B64}" alt="AQG BUSINESS Stamp">
       <div class="cr-sign">
         ${SIGNATURE_SVG}
         <div class="cr-shopname">AQG BUSINESS</div>
@@ -1762,7 +1761,6 @@ function buildCardReceiptHTML(partyId, paymentId){
     </div>
     <div class="cr-clear"></div>
     <div class="cr-footer">
-      ${logoSrc ? `<img class="cr-stamp" src="${logoSrc}" alt="AQG BUSINESS Stamp">` : ''}
       <div class="cr-credit">Software By Fazul Khan Chandio — 03333909816</div>
     </div>
   `;
@@ -1842,7 +1840,6 @@ function buildInvoiceHTML(partyId){
     <div class="cr-desc"><b>Installment Plan:</b> ${count} × ${party.frequency||'Monthly'} qist — ${fmtMoney(party.installmentAmount||0)} har qist</div>
     <div class="cr-note">⚠️ Har qist ki akhri tareekh (grace, due date se ${OVERDUE_GRACE_DAYS} din baad) se pehle payment na hui to ${OVERDUE_CHARGE_PERCENT}% overdue charges lagenge.</div>
     <div class="cr-sign-wrap">
-      <img class="cr-sign-stamp" src="data:image/jpeg;base64,${STAMP_IMG_B64}" alt="AQG BUSINESS Stamp">
       <div class="cr-sign">
         ${SIGNATURE_SVG}
         <div class="cr-shopname">AQG BUSINESS</div>
@@ -1850,7 +1847,6 @@ function buildInvoiceHTML(partyId){
     </div>
     <div class="cr-clear"></div>
     <div class="cr-footer">
-      ${logoSrc ? `<img class="cr-stamp" src="${logoSrc}" alt="AQG BUSINESS Stamp">` : ''}
       <div class="cr-credit">Software By Fazul Khan Chandio — 03333909816</div>
     </div>
   `;
@@ -2348,7 +2344,6 @@ function buildFeeChallanHTML(partyId){
     <tbody>${rowsHtml(unpaidRows)}</tbody></table>
     ${bal.balance>0 ? `<div class="cr-note">⚠️ Baqaya fees waqt par jama karayein — akhri tareekh (grace) ke baad ${OVERDUE_CHARGE_PERCENT}% overdue charges lag saktay hain.</div>` : ''}
     <div class="cr-sign-wrap">
-      <img class="cr-sign-stamp" src="data:image/jpeg;base64,${STAMP_IMG_B64}" alt="AQG BUSINESS Stamp">
       <div class="cr-sign">
         ${SIGNATURE_SVG}
         <div class="cr-shopname">AQG BUSINESS</div>
@@ -2356,7 +2351,6 @@ function buildFeeChallanHTML(partyId){
     </div>
     <div class="cr-clear"></div>
     <div class="cr-footer">
-      ${logoSrc ? `<img class="cr-stamp" src="${logoSrc}" alt="AQG BUSINESS Stamp">` : ''}
       <div class="cr-credit">Software By Fazul Khan Chandio — 03333909816</div>
     </div>
   `;
@@ -2582,6 +2576,21 @@ function qistCalc(){
 function selectPartyType(btn){
   document.querySelectorAll('#npTypeRow .method-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
+  updateNpMarkupVisibility();
+}
+// Students/tuition ka koi markup/profit margin nahi hota (ye ek fee hai,
+// resale item nahi) — is liye Student type select hone par Markup % field
+// aur 30%/35% quick buttons chupa dete hain aur markup ko 0 par force karte hain.
+function updateNpMarkupVisibility(){
+  const isStudentType = document.querySelector('#npTypeRow .method-btn.active')?.dataset.t === 'student';
+  const markupField = document.getElementById('npMarkupField');
+  const markupQuickRow = document.getElementById('npMarkupQuickRow');
+  if(markupField) markupField.style.display = isStudentType ? 'none' : '';
+  if(markupQuickRow) markupQuickRow.style.display = isStudentType ? 'none' : '';
+  if(isStudentType){
+    document.getElementById('npMarkup').value = '0';
+  }
+  npCalc();
 }
 let editingPartyId = null;
 function setNpMarkup(pct){
@@ -2623,7 +2632,7 @@ function openAddPartyModal(){
   const stkSel = document.getElementById('npStockItem');
   if(stkSel) stkSel.innerHTML = '<option value="">— Link nahi karna —</option>' + stock.map(s=>`<option value="${s.id}">${s.name} (${s.qty} ${s.unit} bacha hai)</option>`).join('');
   document.querySelectorAll('#npTypeRow .method-btn').forEach((b,i)=>b.classList.toggle('active', i===0));
-  npCalc();
+  updateNpMarkupVisibility();
   document.getElementById('addPartyModal').style.display = 'flex';
 }
 function openEditPartyModal(id){
@@ -2648,7 +2657,7 @@ function openEditPartyModal(id){
   const stkSelE = document.getElementById('npStockItem');
   if(stkSelE) stkSelE.innerHTML = '<option value="">— Link nahi karna —</option>' + stock.map(s=>`<option value="${s.id}">${s.name} (${s.qty} ${s.unit} bacha hai)</option>`).join('');
   document.querySelectorAll('#npTypeRow .method-btn').forEach(b=>b.classList.toggle('active', b.dataset.t === (party.partyType||'receivable')));
-  npCalc();
+  updateNpMarkupVisibility();
   document.getElementById('addPartyModal').style.display = 'flex';
 }
 function closeAddPartyModal(){ document.getElementById('addPartyModal').style.display = 'none'; editingPartyId = null; }
@@ -2658,7 +2667,7 @@ function submitAddParty(){
   if(!name || !price){ showToast('Name and Price are required', 'error'); return; }
   const partyType = document.querySelector('#npTypeRow .method-btn.active')?.dataset.t || 'receivable';
   const calc = npCalc();
-  const markupPercent = Number(document.getElementById('npMarkup').value||0);
+  const markupPercent = partyType === 'student' ? 0 : Number(document.getElementById('npMarkup').value||0);
   const installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
   if(editingPartyId){
     const oldParty = parties.find(p=>p.id===editingPartyId);
