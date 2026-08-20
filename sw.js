@@ -1,4 +1,4 @@
-/* AQG Instalment — service worker
+/* AQG BUSINESS — Installment & Tuition Mentor — service worker
    Caches the app shell so the app can open offline / install as a PWA,
    but always prefers the LIVE network version when online so updates
    show up within seconds instead of waiting for a second app open.
@@ -6,7 +6,7 @@
 
 /* Bump this version string every time you re-upload index.html —
    it forces old caches to be wiped on activate. */
-const CACHE_NAME = 'aqg-instalment-v3';
+const CACHE_NAME = 'aqg-business-v1';
 const APP_SHELL = [
   './',
   './index.html',
