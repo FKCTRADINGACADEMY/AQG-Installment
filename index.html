@@ -749,7 +749,7 @@
     </div>
     <div class="field"><label>Name *</label><input id="npName"></div>
     <div class="field"><label>Phone Number</label><input id="npPhone" placeholder="03xx-xxxxxxx"></div>
-    <div class="field"><label>Item (Mobile/AC/TV/Fridge)</label><input id="npItem" list="mobileBrandsList" placeholder="Mobile brand ya item likhein"></div>
+    <div class="field" id="npItemField"><label id="npItemLabel">Item (Mobile/AC/TV/Fridge)</label><input id="npItem" list="mobileBrandsList" placeholder="Mobile brand ya item likhein"></div>
     <datalist id="mobileBrandsList">
       <option value="Samsung">
       <option value="Vivo">
@@ -769,7 +769,7 @@
       <option value="Motorola">
     </datalist>
     <div class="grid2">
-      <div class="field"><label>Price *</label><input type="number" id="npPrice" oninput="npCalc()"></div>
+      <div class="field"><label id="npPriceLabel">Price *</label><input type="number" id="npPrice" oninput="npCalc()"></div>
       <div class="field" id="npMarkupField"><label>Markup %</label><input type="number" id="npMarkup" value="0" oninput="npCalc()"></div>
     </div>
     <div class="method-row" id="npMarkupQuickRow" style="margin:0 0 10px;">
@@ -777,12 +777,12 @@
       <button type="button" class="method-btn" onclick="setNpMarkup(35)">35%</button>
     </div>
     <div class="grid2">
-      <div class="field"><label>Advance Paid</label><input type="number" id="npAdvance" value="0" oninput="npCalc()"></div>
-      <div class="field"><label>Number of Installments</label><input type="number" id="npCount" value="6" oninput="npCalc()"></div>
+      <div class="field" id="npAdvanceField"><label>Advance Paid</label><input type="number" id="npAdvance" value="0" oninput="npCalc()"></div>
+      <div class="field" id="npCountField"><label>Number of Installments</label><input type="number" id="npCount" value="6" oninput="npCalc()"></div>
     </div>
     <div class="grid2">
-      <div class="field"><label>GST/Tax % (optional)</label><input type="number" id="npGst" value="0"></div>
-      <div class="field"><label>Stock Item (optional)</label><select id="npStockItem"><option value="">— Link nahi karna —</option></select></div>
+      <div class="field" id="npGstField"><label>GST/Tax % (optional)</label><input type="number" id="npGst" value="0"></div>
+      <div class="field" id="npStockField"><label>Stock Item (optional)</label><select id="npStockItem"><option value="">— Link nahi karna —</option></select></div>
     </div>
     <div class="field"><label>Frequency</label>
       <select id="npFrequency"><option>Daily</option><option>Weekly</option><option selected>Monthly</option></select>
@@ -2578,17 +2578,39 @@ function selectPartyType(btn){
   btn.classList.add('active');
   updateNpMarkupVisibility();
 }
-// Students/tuition ka koi markup/profit margin nahi hota (ye ek fee hai,
-// resale item nahi) — is liye Student type select hone par Markup % field
-// aur 30%/35% quick buttons chupa dete hain aur markup ko 0 par force karte hain.
+// Students/tuition ka koi markup/profit margin, GST/Tax, ya advance nahi
+// hota (ye ek fee hai, resale item nahi) — is liye Student type select
+// hone par Markup %, 30%/35% quick buttons, GST/Tax %, Advance Paid,
+// Stock Item, aur Number of Installments chupa dete hain (installments
+// fixed 6 rehta hai), "Item" ko "Subject" aur "Price" ko "Fees" mein
+// badal dete hain. Baqi types (I'm Owed / I Owe) pe koi farq nahi padta.
 function updateNpMarkupVisibility(){
   const isStudentType = document.querySelector('#npTypeRow .method-btn.active')?.dataset.t === 'student';
   const markupField = document.getElementById('npMarkupField');
   const markupQuickRow = document.getElementById('npMarkupQuickRow');
+  const gstField = document.getElementById('npGstField');
+  const advanceField = document.getElementById('npAdvanceField');
+  const stockField = document.getElementById('npStockField');
+  const countField = document.getElementById('npCountField');
+  const itemLabel = document.getElementById('npItemLabel');
+  const itemInput = document.getElementById('npItem');
+  const priceLabel = document.getElementById('npPriceLabel');
   if(markupField) markupField.style.display = isStudentType ? 'none' : '';
   if(markupQuickRow) markupQuickRow.style.display = isStudentType ? 'none' : '';
+  if(gstField) gstField.style.display = isStudentType ? 'none' : '';
+  if(advanceField) advanceField.style.display = isStudentType ? 'none' : '';
+  if(stockField) stockField.style.display = isStudentType ? 'none' : '';
+  if(countField) countField.style.display = isStudentType ? 'none' : '';
+  if(itemLabel) itemLabel.textContent = isStudentType ? 'Subject' : 'Item (Mobile/AC/TV/Fridge)';
+  if(itemInput) itemInput.placeholder = isStudentType ? 'Subject likhein' : 'Mobile brand ya item likhein';
+  if(itemInput) itemInput.toggleAttribute('list', !isStudentType);
+  if(priceLabel) priceLabel.textContent = isStudentType ? 'Fees *' : 'Price *';
   if(isStudentType){
     document.getElementById('npMarkup').value = '0';
+    document.getElementById('npGst').value = '0';
+    document.getElementById('npAdvance').value = '0';
+    const stkSel = document.getElementById('npStockItem');
+    if(stkSel) stkSel.value = '';
   }
   npCalc();
 }
@@ -2600,17 +2622,21 @@ function setNpMarkup(pct){
 // Reads Price + Markup% + Advance + Number of Installments and computes Total Payment
 // and the per-installment amount — customer/staff only ever type the Price.
 function npCalc(){
+  const isStudentType = document.querySelector('#npTypeRow .method-btn.active')?.dataset.t === 'student';
   const price = Number(document.getElementById('npPrice').value)||0;
-  const markupPct = Number(document.getElementById('npMarkup').value)||0;
-  const advance = Number(document.getElementById('npAdvance').value)||0;
+  const markupPct = isStudentType ? 0 : (Number(document.getElementById('npMarkup').value)||0);
+  const advance = isStudentType ? 0 : (Number(document.getElementById('npAdvance').value)||0);
   const count = Math.max(Number(document.getElementById('npCount').value)||0, 0);
   const box = document.getElementById('npCalcResult');
-  if(price<=0){ box.innerHTML = '<span style="opacity:.5;">Enter the price — Total and Installment amount will be calculated automatically</span>'; return {totalAmount:0, installmentAmount:0, markupAmount:0}; }
+  if(price<=0){ box.innerHTML = `<span style="opacity:.5;">Enter the ${isStudentType?'fees':'price'} — Total and Installment amount will be calculated automatically</span>`; return {totalAmount:0, installmentAmount:0, markupAmount:0}; }
   const markupAmount = price * markupPct / 100;
   const totalAmount = price + markupAmount;
   const remaining = Math.max(totalAmount - advance, 0);
   const installmentAmount = count>0 ? remaining/count : 0;
-  box.innerHTML = `
+  box.innerHTML = isStudentType ? `
+    <div class="row-between" style="font-weight:700;"><span>Total Fees</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
+    ${count>0 ? `<div class="row-between" style="font-weight:700; color:var(--teal);"><span>Monthly Fee (${count})</span><span class="mono">${fmtMoney(installmentAmount)}</span></div>` : ''}
+  ` : `
     <div class="row-between"><span>Payment (Price)</span><span class="mono">${fmtMoney(price)}</span></div>
     <div class="row-between"><span>+ Markup (${markupPct}%)</span><span class="mono">${fmtMoney(markupAmount)}</span></div>
     <div class="row-between" style="font-weight:700; border-top:1px solid var(--line); padding-top:6px; margin-top:2px;"><span>Total Payment</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
@@ -2668,6 +2694,8 @@ function submitAddParty(){
   const partyType = document.querySelector('#npTypeRow .method-btn.active')?.dataset.t || 'receivable';
   const calc = npCalc();
   const markupPercent = partyType === 'student' ? 0 : Number(document.getElementById('npMarkup').value||0);
+  const gstPercent = partyType === 'student' ? 0 : Number(document.getElementById('npGst').value||0);
+  const advancePaid = partyType === 'student' ? 0 : Number(document.getElementById('npAdvance').value||0);
   const installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
   if(editingPartyId){
     const oldParty = parties.find(p=>p.id===editingPartyId);
@@ -2679,10 +2707,10 @@ function submitAddParty(){
       item: document.getElementById('npItem').value.trim(),
       price: Number(price),
       markupPercent,
-      gstPercent: Number(document.getElementById('npGst').value||0),
+      gstPercent,
       installmentCount,
       totalAmount: calc.totalAmount,
-      advancePaid: Number(document.getElementById('npAdvance').value||0),
+      advancePaid,
       installmentAmount: calc.installmentAmount,
       frequency: document.getElementById('npFrequency').value,
       startDate: document.getElementById('npStart').value || todayStr()
@@ -2701,10 +2729,10 @@ function submitAddParty(){
     item: document.getElementById('npItem').value.trim(),
     price: Number(price),
     markupPercent,
-    gstPercent: Number(document.getElementById('npGst').value||0),
+    gstPercent,
     installmentCount,
     totalAmount: calc.totalAmount,
-    advancePaid: Number(document.getElementById('npAdvance').value||0),
+    advancePaid,
     installmentAmount: calc.installmentAmount,
     frequency: document.getElementById('npFrequency').value,
     startDate: document.getElementById('npStart').value || todayStr(),
