@@ -371,6 +371,7 @@
   <div class="sidebar-link" onclick="goToPartiesFilter('all')"><span class="sl-icon">👥</span> Sub Parties <span class="sl-badge" id="sbAllCount">0</span></div>
   <div class="sidebar-link" onclick="goToPartiesFilter('receivable')"><span class="sl-icon">📌</span> You'll Get <span class="sl-badge" id="sbReceivableCount">0</span></div>
   <div class="sidebar-link" onclick="goToPartiesFilter('payable')"><span class="sl-icon">🤝</span> You'll Give <span class="sl-badge" id="sbPayableCount">0</span></div>
+  <div class="sidebar-link" onclick="goToPartiesFilter('student')"><span class="sl-icon">🎓</span> Students <span class="sl-badge" id="sbStudentCount">0</span></div>
   <div class="sidebar-section-label">More Features</div>
   <div class="sidebar-link" onclick="sidebarNav('kharcha')"><span class="sl-icon">💸</span> Kharcha</div>
   <div class="sidebar-link" onclick="sidebarNav('reports')"><span class="sl-icon">📄</span> Reports</div>
@@ -471,6 +472,7 @@
         <button type="button" class="filter-chip active" data-f="all" onclick="setPartyFilter('all')">All Party</button>
         <button type="button" class="filter-chip" data-f="receivable" onclick="setPartyFilter('receivable')">📌 I'm Owed</button>
         <button type="button" class="filter-chip" data-f="payable" onclick="setPartyFilter('payable')">🤝 I Owe</button>
+        <button type="button" class="filter-chip" data-f="student" onclick="setPartyFilter('student')">🎓 Students</button>
         <button type="button" class="filter-chip" data-f="overdue" onclick="setPartyFilter('overdue')">⏰ Overdue</button>
         <button type="button" class="filter-chip" data-f="atrisk" onclick="setPartyFilter('atrisk')">🚩 At Risk</button>
       </div>
@@ -742,6 +744,7 @@
       <div class="method-row" id="npTypeRow" style="margin:0 0 4px;">
         <button type="button" class="method-btn active" data-t="receivable" onclick="selectPartyType(this)">📥 I'm Owed</button>
         <button type="button" class="method-btn" data-t="payable" onclick="selectPartyType(this)">📤 I Owe</button>
+        <button type="button" class="method-btn" data-t="student" onclick="selectPartyType(this)">🎓 Student</button>
       </div>
     </div>
     <div class="field"><label>Name *</label><input id="npName"></div>
@@ -1128,6 +1131,7 @@ if(!BIZ_DOC){ startCloudSync(); }
 
 /* ===================== BALANCES ===================== */
 function isPayable(party){ return party && party.partyType === 'payable'; }
+function isStudent(party){ return party && party.partyType === 'student'; }
 function partyBalance(partyId){
   const p = parties.find(x => x.id === partyId);
   if(!p) return { totalPaid:0, balance:0, overpaid:0 };
@@ -1188,6 +1192,10 @@ function computeTotals(){
   const roiPercent = totalInvestment>0 ? (totalProfitEarned/totalInvestment*100) : 0;
   const activeReceivable = receivableParties.filter(p=>partyBalance(p.id).balance>0).length;
   const activePayable = payableParties.filter(p=>partyBalance(p.id).balance>0).length;
+  // Students are a receivable sub-type (they still count in Outstanding/
+  // Collected/Profit above) — this is just their own count for the
+  // "Students" sidebar badge/filter.
+  const activeStudent = parties.filter(p=>isStudent(p) && partyBalance(p.id).balance>0).length;
   // "Active Parties" on the dashboard covers everyone with an open balance —
   // both people who owe the shop (receivable) and parties the shop owes
   // (payable) — so the dashboard number matches the full Parties list.
@@ -1200,7 +1208,7 @@ function computeTotals(){
     return graceDueDate(computeNextDue(p)) < today;
   }).length;
   const atRiskCount = parties.filter(p=>p.atRisk && partyBalance(p.id).balance>0).length;
-  return { totalOutstanding, totalPayableOutstanding, totalCollected, totalCollectedThisMonth, todayCollection, totalInvestment, totalProfitEarned, roiPercent, activeParties, activeReceivable, activePayable, overdueCount, atRiskCount, totalPartiesCount: parties.length };
+  return { totalOutstanding, totalPayableOutstanding, totalCollected, totalCollectedThisMonth, todayCollection, totalInvestment, totalProfitEarned, roiPercent, activeParties, activeReceivable, activePayable, activeStudent, overdueCount, atRiskCount, totalPartiesCount: parties.length };
 }
 
 /* ===================== INSTALLMENT SCHEDULE / REMINDERS ===================== */
@@ -2477,9 +2485,11 @@ function updateSidebarCounts(){
   const allEl = document.getElementById('sbAllCount');
   const recEl = document.getElementById('sbReceivableCount');
   const payEl = document.getElementById('sbPayableCount');
+  const stuEl = document.getElementById('sbStudentCount');
   if(allEl) allEl.textContent = t.totalPartiesCount;
   if(recEl) recEl.textContent = t.activeReceivable;
   if(payEl) payEl.textContent = t.activePayable;
+  if(stuEl) stuEl.textContent = t.activeStudent;
 }
 function sidebarNav(name){
   closeSidebar();
@@ -2863,6 +2873,7 @@ function renderPartiesList(){
   const filtered = parties.filter(p=>{
     if(partyListFilter==='receivable' && isPayable(p)) return false;
     if(partyListFilter==='payable' && !isPayable(p)) return false;
+    if(partyListFilter==='student' && !isStudent(p)) return false;
     if(partyListFilter==='overdue'){
       const b = partyBalance(p.id);
       if(b.balance<=0) return false;
@@ -2877,6 +2888,7 @@ function renderPartiesList(){
   if(filtered.length===0){
     const emptyMsg = partyListFilter==='payable' ? 'No parties you owe money to.'
       : partyListFilter==='receivable' ? 'No parties who owe you money.'
+      : partyListFilter==='student' ? 'Koi student add nahi kiya gaya.'
       : partyListFilter==='overdue' ? 'No party is overdue — everyone is on time.'
       : partyListFilter==='atrisk' ? 'Koi party \'At Risk\' mark nahi ki gayi.'
       : 'No party found. Add a new party.';
@@ -2899,6 +2911,7 @@ function renderPartiesList(){
           ${p.phone ? `<div class="pmeta">📞 ${p.phone}</div>` : ''}
         </div>
         <div style="display:flex; align-items:flex-start; gap:8px;">
+          ${isStudent(p) ? `<span class="stamp" style="color:var(--gold); border-color:var(--gold);">🎓 Student</span>` : ''}
           ${p.atRisk ? `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">🚩 At Risk</span>` : ''}
           ${stampHtml}
           <button class="icon-btn" title="Party edit karein" onclick="event.stopPropagation(); openEditPartyModal(${p.id})">✏️</button>
@@ -2956,7 +2969,7 @@ function renderPartyDetail(id){
     <div class="card">
       <div class="row-between" style="align-items:flex-start;">
         <div>
-          <h3 style="font-size:17px;">${party.name}</h3>
+          <h3 style="font-size:17px;">${party.name}${isStudent(party) ? ' <span class="stamp" style="color:var(--gold); border-color:var(--gold); font-size:10px; vertical-align:middle;">🎓 Student</span>' : ''}</h3>
           <div style="font-size:12px; opacity:.6; margin-top:2px;">${party.item||''}</div>
           ${party.phone ? `<div style="font-size:12px; opacity:.6; margin-top:4px;">📞 ${party.phone}</div>` : ''}
         </div>
