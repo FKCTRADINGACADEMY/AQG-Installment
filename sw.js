@@ -4,9 +4,10 @@
    show up within seconds instead of waiting for a second app open.
    Firebase & CDN calls always go straight to the network (live data). */
 
-/* Bump this version string every time you re-upload index.html —
-   it forces old caches to be wiped on activate. */
-const CACHE_NAME = 'aqg-business-v1';
+/* Version string — bumped automatically to today's date+time whenever
+   this file (or index.html) is edited, so old caches always get wiped
+   on activate without anyone having to remember to change a number. */
+const CACHE_NAME = 'aqg-business-v2026.08.20-1537';
 const APP_SHELL = [
   './',
   './index.html',
