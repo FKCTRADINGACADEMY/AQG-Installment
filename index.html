@@ -2939,7 +2939,7 @@ function renderPartiesList(){
     if(b.overpaid>0) stampHtml = `<span class="stamp" style="color:var(--gold); border-color:var(--gold);">Extra ${fmtMoney(b.overpaid)}</span>`;
     else if(b.balance<=0) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">${payable?'Ada Ho Gaya':'Paid'}</span>`;
     else if(payable) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">Dena ${fmtMoney(b.balance)}</span>`;
-    else stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">Outstanding ${fmtMoney(b.balance)}</span>`;
+    else stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">${isStudent(p)?'Unpaid':'Outstanding'} ${fmtMoney(b.balance)}</span>`;
     return `<div class="party-item" onclick="openParty(${p.id})">
       <div class="row-between" style="align-items:flex-start;">
         <div>
@@ -2977,7 +2977,7 @@ function renderPartyDetail(id){
   if(bal.overpaid>0) stampHtml = `<span class="stamp" style="color:var(--gold); border-color:var(--gold);">Extra ${fmtMoney(bal.overpaid)}</span>`;
   else if(bal.balance<=0) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">${payable?'Ada Ho Gaya':'Paid'}</span>`;
   else if(payable) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">I Owe ${fmtMoney(bal.balance)}</span>`;
-  else stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">Outstanding ${fmtMoney(bal.balance)}</span>`;
+  else stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">${isStudent(party)?'Unpaid':'Outstanding'} ${fmtMoney(bal.balance)}</span>`;
 
   const scheduleRows = schedule.map(r => `
     <tr>
