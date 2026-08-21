@@ -1934,6 +1934,22 @@ function addPayment(partyId, payment){
   renderAll();
   return rec;
 }
+// Student fees: Unpaid stamp / Mark Paid button — baqi amount ek payment mein Paid
+function markStudentFeesPaid(partyId){
+  const party = parties.find(p=>p.id===partyId);
+  if(!party || !isStudent(party)) return;
+  const bal = partyBalance(partyId).balance;
+  if(bal<=0){ showToast('Pehle se Paid hai'); return; }
+  if(!confirm(party.name + ' ki baqi fees ' + fmtMoney(bal) + ' Paid mark karein?')) return;
+  addPayment(partyId, {
+    amount: bal,
+    method: 'Cash',
+    date: todayStr(),
+    note: 'Fees marked Paid (full clearance)'
+  });
+  showToast(party.name + ' — Fees Paid ✅');
+  if(typeof renderPartiesList === 'function') renderPartiesList();
+}
 function deletePayment(paymentId){
   const rec = payments.find(p=>p.id===paymentId);
   if(!rec) return;
@@ -2321,7 +2337,8 @@ function buildFeeChallanHTML(partyId){
         <div class="cr-sub">${SHOP_ADDRESS}</div>
       </div>
     </div>
-    <div class="cr-title">Fee Challan</div>
+    <div class="cr-title">AQG Tuition Mentor</div>
+    <div style="text-align:center; font-size:12px; opacity:.65; margin:-8px 0 14px;">Fee Challan</div>
     <div class="cr-row"><span class="lbl">Student:</span><span></span></div>
     <div class="cr-row"><span>${party.name}</span><span>Date: ${fmtDate(todayStr())}</span></div>
     <div class="cr-row"><span>${party.phone||''}</span><span>${party.item?('Subject: '+party.item):''}</span></div>
@@ -2384,7 +2401,8 @@ function downloadFeeChallanPDF(partyId){
   const bal = partyBalance(partyId);
   const statusLabel = bal.balance<=0 ? 'Paid' : (bal.totalPaid>0 ? 'Partial' : 'Unpaid');
   let y = 18;
-  doc.setFontSize(16); doc.text('AQG BUSINESS — Fee Challan', 14, y); y += 8;
+  doc.setFontSize(16); doc.text('AQG Tuition Mentor', 14, y); y += 7;
+  doc.setFontSize(11); doc.text('Fee Challan', 14, y); y += 10;
   doc.setFontSize(10);
   doc.text('Student: ' + party.name, 14, y); y += 6;
   if(party.phone){ doc.text('Phone: ' + party.phone, 14, y); y += 6; }
@@ -2446,7 +2464,7 @@ function sidebarNav(name){
 
 /* ===================== PARTIES LIST FILTER (Sub / I'm Owed / I Owe) ===================== */
 let partyListFilter = 'all';
-let studentFeeFilter = 'all'; // all | paid | unpaid — Students section
+let studentFeeFilter = 'all';
 function setPartyFilter(mode){
   partyListFilter = mode;
   document.querySelectorAll('#partyFilterRow .filter-chip').forEach(b=>b.classList.toggle('active', b.dataset.f===mode));
@@ -2564,8 +2582,6 @@ function updateNpMarkupVisibility(){
   if(advanceField) advanceField.style.display = isStudentType ? 'none' : '';
   if(stockField) stockField.style.display = isStudentType ? 'none' : '';
   if(countField) countField.style.display = isStudentType ? 'none' : '';
-  const freqField = document.getElementById('npFrequency') && document.getElementById('npFrequency').closest('.field');
-  if(freqField) freqField.style.display = isStudentType ? 'none' : '';
   if(itemLabel) itemLabel.textContent = isStudentType ? 'Subject' : 'Item (Mobile/AC/TV/Fridge)';
   if(itemInput) itemInput.placeholder = isStudentType ? 'Subject likhein' : 'Mobile brand ya item likhein';
   if(itemInput) itemInput.toggleAttribute('list', !isStudentType);
@@ -2574,7 +2590,6 @@ function updateNpMarkupVisibility(){
     document.getElementById('npMarkup').value = '0';
     document.getElementById('npGst').value = '0';
     document.getElementById('npAdvance').value = '0';
-    document.getElementById('npCount').value = '1';
     const stkSel = document.getElementById('npStockItem');
     if(stkSel) stkSel.value = '';
   }
@@ -2601,7 +2616,7 @@ function npCalc(){
   const installmentAmount = count>0 ? remaining/count : 0;
   box.innerHTML = isStudentType ? `
     <div class="row-between" style="font-weight:700;"><span>Total Fees</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
-    <div style="font-size:11px; opacity:.55; margin-top:4px;">Installment/qist plan yahan nahi — fees alag simple amount hai.</div>
+    ${count>0 ? `<div class="row-between" style="font-weight:700; color:var(--teal);"><span>Monthly Fee (${count})</span><span class="mono">${fmtMoney(installmentAmount)}</span></div>` : ''}
   ` : `
     <div class="row-between"><span>Payment (Price)</span><span class="mono">${fmtMoney(price)}</span></div>
     <div class="row-between"><span>+ Markup (${markupPct}%)</span><span class="mono">${fmtMoney(markupAmount)}</span></div>
@@ -2662,11 +2677,7 @@ function submitAddParty(){
   const markupPercent = partyType === 'student' ? 0 : Number(document.getElementById('npMarkup').value||0);
   const gstPercent = partyType === 'student' ? 0 : Number(document.getElementById('npGst').value||0);
   const advancePaid = partyType === 'student' ? 0 : Number(document.getElementById('npAdvance').value||0);
-  let installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
-  if(partyType === 'student'){
-    installmentCount = 1;
-    calc.installmentAmount = calc.totalAmount;
-  }
+  const installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
   if(editingPartyId){
     const oldParty = parties.find(p=>p.id===editingPartyId);
     if(!oldParty){ closeAddPartyModal(); return; }
@@ -2897,11 +2908,7 @@ function renderPartiesList(){
   if(filtered.length===0){
     const emptyMsg = partyListFilter==='payable' ? 'No parties you owe money to.'
       : partyListFilter==='receivable' ? 'No parties who owe you money.'
-      : partyListFilter==='student' ? (
-          studentFeeFilter==='paid' ? 'Koi student fees fully paid nahi.'
-          : studentFeeFilter==='unpaid' ? 'Koi student unpaid nahi — sab clear hain.'
-          : 'Koi student add nahi kiya gaya.'
-        )
+      : partyListFilter==='student' ? 'Koi student add nahi kiya gaya.'
       : partyListFilter==='overdue' ? 'No party is overdue — everyone is on time.'
       : partyListFilter==='atrisk' ? 'Koi party \'At Risk\' mark nahi ki gayi.'
       : 'No party found. Add a new party.';
@@ -2916,16 +2923,24 @@ function renderPartiesList(){
     else if(b.balance<=0) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">${payable?'Ada Ho Gaya':'Paid'}</span>`;
     else if(payable) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">Dena ${fmtMoney(b.balance)}</span>`;
     else stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">${isStudent(p)?'Unpaid':'Outstanding'} ${fmtMoney(b.balance)}</span>`;
-    const challanBtn = isStudent(p)
-      ? `<button class="btn btn-sm btn-outline-teal" style="margin-top:8px; padding:5px 10px; font-size:11px;" onclick="event.stopPropagation(); shareFeeChallanImage(${p.id})">📄 Fee Challan</button>`
-      : '';
+    // Student: Unpaid stamp tap -> full fee Paid; alag Fee Challan button
+    if(isStudent(p) && !payable && b.balance>0){
+      stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick); cursor:pointer;" title="Tap to mark Paid" onclick="event.stopPropagation(); markStudentFeesPaid(${p.id})">Unpaid ${fmtMoney(b.balance)}</span>`;
+    } else if(isStudent(p) && !payable && b.balance<=0){
+      stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">Paid</span>`;
+    }
+    const studentBtns = isStudent(p) ? `
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;" onclick="event.stopPropagation();">
+        ${b.balance>0 ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="markStudentFeesPaid(${p.id})">✅ Mark Paid</button>` : ''}
+        <button class="btn btn-sm btn-outline-teal" style="padding:5px 10px; font-size:11px;" onclick="shareFeeChallanImage(${p.id})">📄 Fee Challan</button>
+      </div>` : '';
     return `<div class="party-item" onclick="openParty(${p.id})">
       <div class="row-between" style="align-items:flex-start;">
-        <div>
+        <div style="min-width:0; flex:1;">
           <div class="pname">${p.name}</div>
           <div class="pmeta">${p.item||''} · ${fmtMoney(p.totalAmount)}</div>
           ${p.phone ? `<div class="pmeta">📞 ${p.phone}</div>` : ''}
-          ${challanBtn}
+          ${studentBtns}
         </div>
         <div style="display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
           ${isStudent(p) ? `<span class="stamp" style="color:var(--gold); border-color:var(--gold);">🎓 Student</span>` : ''}
@@ -2998,7 +3013,7 @@ function renderPartyDetail(id){
         <div><div class="stat-label">${payable?'I Owe':'Balance'}</div><div class="mono" style="font-weight:700; font-size:13px; color:var(--brick);">${fmtMoney(bal.balance)}</div></div>
       </div>
       ${party.price != null ? `<div style="font-size:12px; opacity:.6; margin-top:8px;">Payment: ${fmtMoney(party.price)} + Markup (${party.markupPercent||0}%): ${fmtMoney(party.price*(party.markupPercent||0)/100)} = Total ${fmtMoney(party.totalAmount)}</div>` : ''}
-      ${(!isStudent(party) && party.installmentAmount) ? `<div style="font-size:12px; opacity:.6; margin-top:4px;">Qist: ${fmtMoney(party.installmentAmount)} / ${party.frequency}${party.installmentCount?(' × '+party.installmentCount):''}</div>` : ''}
+      ${party.installmentAmount ? `<div style="font-size:12px; opacity:.6; margin-top:4px;">Qist: ${fmtMoney(party.installmentAmount)} / ${party.frequency}${party.installmentCount?(' × '+party.installmentCount):''}</div>` : ''}
     </div>
 
     ${!payable ? (()=>{
@@ -3061,7 +3076,7 @@ function renderPartyDetail(id){
       <button class="btn btn-gold btn-block" onclick="submitPayment(${party.id})">Save Payment</button>
     </div>
 
-    ${(!isStudent(party) && schedule.length>0) ? `
+    ${schedule.length>0 ? `
     <div class="section-title">Future Installment Schedule</div>
     <div class="card">
       <table>
@@ -3083,8 +3098,8 @@ function renderPartyDetail(id){
     </div>
 
     <div class="card">
-      <div style="font-weight:600; font-size:13px; margin-bottom:10px;">🎓 Fee Challan</div>
-      <div style="font-size:11px; opacity:.6; margin-bottom:10px;">Total Fee, Paid aur Unpaid — simple fees slip (installment alag hai).</div>
+      <div style="font-weight:600; font-size:13px; margin-bottom:10px;">🎓 Fee Challan (Paid + Unpaid)</div>
+      <div style="font-size:11px; opacity:.6; margin-bottom:10px;">Ek hi slip mein saari paid aur unpaid/due qistein — students/tuition fee record ke liye.</div>
       <button class="btn btn-gold btn-block" style="margin-bottom:8px;" onclick="shareFeeChallanImage(${party.id})">📤 Save/Share Challan (JPG)</button>
       <button class="btn btn-outline-teal btn-block btn-sm" onclick="downloadFeeChallanPDF(${party.id})">📄 Download Fee Challan (PDF)</button>
     </div>
