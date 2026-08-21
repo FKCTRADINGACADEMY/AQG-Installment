@@ -476,11 +476,6 @@
         <button type="button" class="filter-chip" data-f="overdue" onclick="setPartyFilter('overdue')">⏰ Overdue</button>
         <button type="button" class="filter-chip" data-f="atrisk" onclick="setPartyFilter('atrisk')">🚩 At Risk</button>
       </div>
-      <div class="filter-chip-row" id="studentFeeFilterRow" style="display:none;">
-        <button type="button" class="filter-chip active" data-sf="all" onclick="setStudentFeeFilter('all')">Sab Students</button>
-        <button type="button" class="filter-chip" data-sf="paid" onclick="setStudentFeeFilter('paid')">✅ Fees Paid</button>
-        <button type="button" class="filter-chip" data-sf="unpaid" onclick="setStudentFeeFilter('unpaid')">⏳ Unpaid</button>
-      </div>
       <div class="searchbar">
         <input id="partySearch" placeholder="Naam, number ya item dhoondein" oninput="renderPartiesList()">
         <button class="btn btn-teal" onclick="openAddPartyModal()">+ New</button>
@@ -2309,18 +2304,9 @@ function buildFeeChallanHTML(partyId){
   const headerImg = document.querySelector('header .inner img');
   const logoSrc = headerImg ? headerImg.src : '';
   const bal = partyBalance(partyId);
-  const schedule = buildSchedule(party);
-  const paidRows = schedule.filter(r=>r.status==='paid');
-  const unpaidRows = schedule.filter(r=>r.status!=='paid');
-
-  const rowsHtml = (rows) => rows.length===0
-    ? `<tr><td colspan="3" style="opacity:.5; text-align:center;">—</td></tr>`
-    : rows.map(r=>`
-      <tr>
-        <td>#${r.n} · ${fmtDate(r.dueDate)}</td>
-        <td><span class="fc-badge ${r.status==='paid'?'paid':'unpaid'}">${r.status==='paid'?'Paid':(r.status==='due'?'Due':'Upcoming')}</span></td>
-        <td>${fmtMoney(r.amount)}</td>
-      </tr>`).join('');
+  // Student fees = simple amount — installment/qist list nahi, sirf totals
+  const statusLabel = bal.balance<=0 ? 'Paid' : (bal.totalPaid>0 ? 'Partial' : 'Unpaid');
+  const statusClass = bal.balance<=0 ? 'paid' : 'unpaid';
 
   const div = document.getElementById('feeChallan');
   div.innerHTML = `
@@ -2334,20 +2320,15 @@ function buildFeeChallanHTML(partyId){
     </div>
     <div class="cr-title">Fee Challan</div>
     <div class="cr-row"><span class="lbl">Student:</span><span></span></div>
-    <div class="cr-row"><span>${party.name}</span><span>Date: ${fmtDate(computeNextDue(party))}</span></div>
-    <div class="cr-row"><span>${party.phone||''}</span><span>${party.item?('Class/Item: '+party.item):''}</span></div>
+    <div class="cr-row"><span>${party.name}</span><span>Date: ${fmtDate(todayStr())}</span></div>
+    <div class="cr-row"><span>${party.phone||''}</span><span>${party.item?('Subject: '+party.item):''}</span></div>
     <div class="cr-box">
       <div class="cr-line"><span>Total Fee</span><span>${fmtMoney(party.totalAmount)}</span></div>
       <div class="cr-line total"><span>Total Paid</span><span>${fmtMoney(bal.totalPaid)}</span></div>
       <div class="cr-line"><span>Total Unpaid / Due</span><span>${fmtMoney(bal.balance)}</span></div>
+      <div class="cr-line"><span>Status</span><span><span class="fc-badge ${statusClass}">${statusLabel}</span></span></div>
     </div>
-    <div class="fc-section">✅ Paid Installments</div>
-    <table class="fc-table"><thead><tr><th>Qist / Date</th><th>Status</th><th>Amount</th></tr></thead>
-    <tbody>${rowsHtml(paidRows)}</tbody></table>
-    <div class="fc-section">⏳ Unpaid Installments</div>
-    <table class="fc-table"><thead><tr><th>Qist / Due Date</th><th>Status</th><th>Amount</th></tr></thead>
-    <tbody>${rowsHtml(unpaidRows)}</tbody></table>
-    ${bal.balance>0 ? `<div class="cr-note">⚠️ Baqaya fees waqt par jama karayein — akhri tareekh (grace) ke baad ${OVERDUE_CHARGE_PERCENT}% overdue charges lag saktay hain.</div>` : ''}
+    ${bal.balance>0 ? `<div class="cr-note">⚠️ Baqaya fees waqt par jama karayein — akhri tareekh (grace) ke baad ${OVERDUE_CHARGE_PERCENT}% overdue charges lag saktay hain.</div>` : `<div class="cr-note" style="background:#e8f5ef; border-color:#1b7a4e; color:#1b7a4e;">✅ Fees clear — koi baqaya nahi.</div>`}
     <div class="cr-sign-wrap">
       <div class="cr-sign">
         ${SIGNATURE_SVG}
@@ -2393,66 +2374,31 @@ function shareFeeChallanImage(partyId){
 function downloadFeeChallanPDF(partyId){
   const party = parties.find(p=>p.id===partyId);
   if(!party) return;
-  if(typeof window.jspdf === 'undefined'){
-    showToast('PDF library failed to load — check your internet', 'error');
-    return;
-  }
-  const { jsPDF } = window.jspdf;
+  const jspdfLib = window.jspdf || (typeof jspdf !== 'undefined' ? jspdf : null);
+  if(!jspdfLib){ showToast('PDF library load nahi hui', 'error'); return; }
+  const { jsPDF } = jspdfLib;
   const doc = new jsPDF();
   const bal = partyBalance(partyId);
-  const schedule = buildSchedule(party);
-  const paidRows = schedule.filter(r=>r.status==='paid');
-  const unpaidRows = schedule.filter(r=>r.status!=='paid');
-
-  doc.setFont('helvetica','bold'); doc.setFontSize(16);
-  doc.text('AQG BUSINESS', 14, 18);
-  doc.setFont('helvetica','normal'); doc.setFontSize(10);
-  doc.text('Fee Challan — Paid & Unpaid', 14, 24);
-  doc.text(SHOP_ADDRESS + '  ·  ' + SHOP_PHONE2 + ' / ' + SHOP_PHONE, 14, 29);
-  doc.setDrawColor(180); doc.line(14, 33, 196, 33);
-
-  doc.setFont('helvetica','bold'); doc.setFontSize(13);
-  doc.text('Student: ' + party.name, 14, 42);
-  doc.setFont('helvetica','normal'); doc.setFontSize(11);
-  if(party.phone) doc.text('Phone: ' + party.phone, 14, 48);
-  let y0 = party.phone ? 56 : 50;
-  doc.text('Total Fee: ' + fmtMoney(party.totalAmount), 14, y0);
-  doc.text('Total Paid: ' + fmtMoney(bal.totalPaid), 14, y0+6);
-  doc.text('Total Unpaid: ' + fmtMoney(bal.balance), 14, y0+12);
-  let y = y0 + 22;
-
-  doc.setFont('helvetica','bold'); doc.setFontSize(11);
-  doc.text('Paid Installments', 14, y); y += 6;
-  doc.setDrawColor(200); doc.line(14, y, 196, y); y += 6;
-  doc.setFont('helvetica','normal');
-  if(paidRows.length===0){ doc.text('—', 14, y); y += 7; }
-  paidRows.forEach(r=>{
-    if(y > 275){ doc.addPage(); y = 20; }
-    doc.text('#'+r.n+'  '+fmtDate(r.dueDate), 14, y);
-    doc.text(fmtMoney(r.amount), 170, y, {align:'right'});
-    y += 7;
-  });
-  y += 4;
-  if(y > 270){ doc.addPage(); y = 20; }
-  doc.setFont('helvetica','bold'); doc.setFontSize(11);
-  doc.text('Unpaid Installments', 14, y); y += 6;
-  doc.setDrawColor(200); doc.line(14, y, 196, y); y += 6;
-  doc.setFont('helvetica','normal');
-  if(unpaidRows.length===0){ doc.text('—', 14, y); y += 7; }
-  unpaidRows.forEach(r=>{
-    if(y > 275){ doc.addPage(); y = 20; }
-    doc.text('#'+r.n+'  '+fmtDate(r.dueDate)+'  ('+(r.status==='due'?'Due':'Upcoming')+')', 14, y);
-    doc.text(fmtMoney(r.amount), 170, y, {align:'right'});
-    y += 7;
-  });
-
-  doc.setFont('helvetica','italic'); doc.setFontSize(9);
-  doc.text('AQG BUSINESS ki taraf se aap ka shukriya.', 14, 288);
-  doc.save(party.name.replace(/\s+/g,'_')+'-fee-challan-'+todayStr()+'.pdf');
+  const statusLabel = bal.balance<=0 ? 'Paid' : (bal.totalPaid>0 ? 'Partial' : 'Unpaid');
+  let y = 18;
+  doc.setFontSize(16); doc.text('AQG BUSINESS — Fee Challan', 14, y); y += 8;
+  doc.setFontSize(10);
+  doc.text('Student: ' + party.name, 14, y); y += 6;
+  if(party.phone){ doc.text('Phone: ' + party.phone, 14, y); y += 6; }
+  if(party.item){ doc.text('Subject: ' + party.item, 14, y); y += 6; }
+  doc.text('Date: ' + fmtDate(todayStr()), 14, y); y += 10;
+  doc.setFontSize(12);
+  doc.text('Total Fee: ' + fmtMoney(party.totalAmount), 14, y); y += 7;
+  doc.text('Total Paid: ' + fmtMoney(bal.totalPaid), 14, y); y += 7;
+  doc.text('Total Unpaid / Due: ' + fmtMoney(bal.balance), 14, y); y += 7;
+  doc.text('Status: ' + statusLabel, 14, y); y += 12;
+  if(bal.balance>0){
+    doc.setFontSize(9);
+    doc.text('Baqaya fees waqt par jama karayein. Grace ke baad ' + OVERDUE_CHARGE_PERCENT + '% overdue charges lag sakte hain.', 14, y, {maxWidth:180});
+  }
+  doc.save('fee-challan-' + party.name.replace(/\s+/g,'_') + '.pdf');
+  showToast('Fee Challan PDF downloaded');
 }
-
-/* ===================== VIEW SWITCHING ===================== */
-const MORE_SUBVIEWS = ['more','accounts','calculator','cards','backup','stock','kharcha','reports'];
 function showView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
@@ -2497,18 +2443,9 @@ function sidebarNav(name){
 
 /* ===================== PARTIES LIST FILTER (Sub / I'm Owed / I Owe) ===================== */
 let partyListFilter = 'all';
-let studentFeeFilter = 'all'; // all | paid | unpaid — sirf Students section ke liye
 function setPartyFilter(mode){
   partyListFilter = mode;
   document.querySelectorAll('#partyFilterRow .filter-chip').forEach(b=>b.classList.toggle('active', b.dataset.f===mode));
-  const sfRow = document.getElementById('studentFeeFilterRow');
-  if(sfRow) sfRow.style.display = (mode === 'student') ? 'flex' : 'none';
-  if(mode !== 'student') studentFeeFilter = 'all';
-  renderPartiesList();
-}
-function setStudentFeeFilter(mode){
-  studentFeeFilter = mode;
-  document.querySelectorAll('#studentFeeFilterRow .filter-chip').forEach(b=>b.classList.toggle('active', b.dataset.sf===mode));
   renderPartiesList();
 }
 // Used by dashboard stat-cards and the sidebar to jump straight into the
@@ -2615,6 +2552,9 @@ function updateNpMarkupVisibility(){
   if(advanceField) advanceField.style.display = isStudentType ? 'none' : '';
   if(stockField) stockField.style.display = isStudentType ? 'none' : '';
   if(countField) countField.style.display = isStudentType ? 'none' : '';
+  // Frequency / installments students fees ke liye nahi — wo alag installment parties ke liye
+  const freqField = document.getElementById('npFrequency') && document.getElementById('npFrequency').closest('.field');
+  if(freqField) freqField.style.display = isStudentType ? 'none' : '';
   if(itemLabel) itemLabel.textContent = isStudentType ? 'Subject' : 'Item (Mobile/AC/TV/Fridge)';
   if(itemInput) itemInput.placeholder = isStudentType ? 'Subject likhein' : 'Mobile brand ya item likhein';
   if(itemInput) itemInput.toggleAttribute('list', !isStudentType);
@@ -2623,6 +2563,7 @@ function updateNpMarkupVisibility(){
     document.getElementById('npMarkup').value = '0';
     document.getElementById('npGst').value = '0';
     document.getElementById('npAdvance').value = '0';
+    document.getElementById('npCount').value = '1';
     const stkSel = document.getElementById('npStockItem');
     if(stkSel) stkSel.value = '';
   }
@@ -2649,7 +2590,7 @@ function npCalc(){
   const installmentAmount = count>0 ? remaining/count : 0;
   box.innerHTML = isStudentType ? `
     <div class="row-between" style="font-weight:700;"><span>Total Fees</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
-    ${count>0 ? `<div class="row-between" style="font-weight:700; color:var(--teal);"><span>Monthly Fee (${count})</span><span class="mono">${fmtMoney(installmentAmount)}</span></div>` : ''}
+    <div style="font-size:11px; opacity:.55; margin-top:4px;">Installment/qist plan yahan nahi — fees alag simple amount hai.</div>
   ` : `
     <div class="row-between"><span>Payment (Price)</span><span class="mono">${fmtMoney(price)}</span></div>
     <div class="row-between"><span>+ Markup (${markupPct}%)</span><span class="mono">${fmtMoney(markupAmount)}</span></div>
@@ -2710,7 +2651,12 @@ function submitAddParty(){
   const markupPercent = partyType === 'student' ? 0 : Number(document.getElementById('npMarkup').value||0);
   const gstPercent = partyType === 'student' ? 0 : Number(document.getElementById('npGst').value||0);
   const advancePaid = partyType === 'student' ? 0 : Number(document.getElementById('npAdvance').value||0);
-  const installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
+  // Student fees = single amount (no qist plan). Installment parties keep their count.
+  let installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
+  if(partyType === 'student'){
+    installmentCount = 1;
+    calc.installmentAmount = calc.totalAmount;
+  }
   if(editingPartyId){
     const oldParty = parties.find(p=>p.id===editingPartyId);
     if(!oldParty){ closeAddPartyModal(); return; }
@@ -2925,12 +2871,6 @@ function renderPartiesList(){
     if(partyListFilter==='receivable' && isPayable(p)) return false;
     if(partyListFilter==='payable' && !isPayable(p)) return false;
     if(partyListFilter==='student' && !isStudent(p)) return false;
-    if(partyListFilter==='student' && studentFeeFilter==='paid'){
-      if(partyBalance(p.id).balance > 0) return false;
-    }
-    if(partyListFilter==='student' && studentFeeFilter==='unpaid'){
-      if(partyBalance(p.id).balance <= 0) return false;
-    }
     if(partyListFilter==='overdue'){
       const b = partyBalance(p.id);
       if(b.balance<=0) return false;
@@ -2945,11 +2885,7 @@ function renderPartiesList(){
   if(filtered.length===0){
     const emptyMsg = partyListFilter==='payable' ? 'No parties you owe money to.'
       : partyListFilter==='receivable' ? 'No parties who owe you money.'
-      : partyListFilter==='student' ? (
-          studentFeeFilter==='paid' ? 'Koi student fees fully paid nahi.'
-          : studentFeeFilter==='unpaid' ? 'Koi student unpaid nahi — sab clear hain.'
-          : 'Koi student add nahi kiya gaya.'
-        )
+      : partyListFilter==='student' ? 'Koi student add nahi kiya gaya.'
       : partyListFilter==='overdue' ? 'No party is overdue — everyone is on time.'
       : partyListFilter==='atrisk' ? 'Koi party \'At Risk\' mark nahi ki gayi.'
       : 'No party found. Add a new party.';
@@ -2964,18 +2900,14 @@ function renderPartiesList(){
     else if(b.balance<=0) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">${payable?'Ada Ho Gaya':'Paid'}</span>`;
     else if(payable) stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">Dena ${fmtMoney(b.balance)}</span>`;
     else stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">${isStudent(p)?'Unpaid':'Outstanding'} ${fmtMoney(b.balance)}</span>`;
-    const challanBtn = isStudent(p)
-      ? `<button class="btn btn-sm btn-outline-teal" style="margin-top:8px; padding:5px 10px; font-size:11px;" onclick="event.stopPropagation(); shareFeeChallanImage(${p.id})">📄 Fee Challan</button>`
-      : '';
     return `<div class="party-item" onclick="openParty(${p.id})">
       <div class="row-between" style="align-items:flex-start;">
         <div>
           <div class="pname">${p.name}</div>
           <div class="pmeta">${p.item||''} · ${fmtMoney(p.totalAmount)}</div>
           ${p.phone ? `<div class="pmeta">📞 ${p.phone}</div>` : ''}
-          ${challanBtn}
         </div>
-        <div style="display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+        <div style="display:flex; align-items:flex-start; gap:8px;">
           ${isStudent(p) ? `<span class="stamp" style="color:var(--gold); border-color:var(--gold);">🎓 Student</span>` : ''}
           ${p.atRisk ? `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">🚩 At Risk</span>` : ''}
           ${stampHtml}
@@ -3046,7 +2978,7 @@ function renderPartyDetail(id){
         <div><div class="stat-label">${payable?'I Owe':'Balance'}</div><div class="mono" style="font-weight:700; font-size:13px; color:var(--brick);">${fmtMoney(bal.balance)}</div></div>
       </div>
       ${party.price != null ? `<div style="font-size:12px; opacity:.6; margin-top:8px;">Payment: ${fmtMoney(party.price)} + Markup (${party.markupPercent||0}%): ${fmtMoney(party.price*(party.markupPercent||0)/100)} = Total ${fmtMoney(party.totalAmount)}</div>` : ''}
-      ${party.installmentAmount ? `<div style="font-size:12px; opacity:.6; margin-top:4px;">Qist: ${fmtMoney(party.installmentAmount)} / ${party.frequency}${party.installmentCount?(' × '+party.installmentCount):''}</div>` : ''}
+      ${(!isStudent(party) && party.installmentAmount) ? `<div style="font-size:12px; opacity:.6; margin-top:4px;">Qist: ${fmtMoney(party.installmentAmount)} / ${party.frequency}${party.installmentCount?(' × '+party.installmentCount):''}</div>` : ''}
     </div>
 
     ${!payable ? (()=>{
@@ -3109,7 +3041,7 @@ function renderPartyDetail(id){
       <button class="btn btn-gold btn-block" onclick="submitPayment(${party.id})">Save Payment</button>
     </div>
 
-    ${schedule.length>0 ? `
+    ${(!isStudent(party) && schedule.length>0) ? `
     <div class="section-title">Future Installment Schedule</div>
     <div class="card">
       <table>
@@ -3131,8 +3063,8 @@ function renderPartyDetail(id){
     </div>
 
     <div class="card">
-      <div style="font-weight:600; font-size:13px; margin-bottom:10px;">🎓 Fee Challan (Paid + Unpaid)</div>
-      <div style="font-size:11px; opacity:.6; margin-bottom:10px;">Ek hi slip mein saari paid aur unpaid/due qistein — students/tuition fee record ke liye.</div>
+      <div style="font-weight:600; font-size:13px; margin-bottom:10px;">🎓 Fee Challan</div>
+      <div style="font-size:11px; opacity:.6; margin-bottom:10px;">Total Fee, Paid aur Unpaid — simple fees slip (installment/qist plan alag hai).</div>
       <button class="btn btn-gold btn-block" style="margin-bottom:8px;" onclick="shareFeeChallanImage(${party.id})">📤 Save/Share Challan (JPG)</button>
       <button class="btn btn-outline-teal btn-block btn-sm" onclick="downloadFeeChallanPDF(${party.id})">📄 Download Fee Challan (PDF)</button>
     </div>
