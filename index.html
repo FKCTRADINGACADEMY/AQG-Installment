@@ -298,6 +298,30 @@
   .app-confirm-cancel{background:#f0f2f1;color:#333;}
   .app-confirm-ok{background:var(--teal,#1b7a4e);color:#fff;}
 
+
+  #groupFeeChallan{display:none; width:400px; background:#fff; color:#26332c; font-family:'Inter',sans-serif; padding:20px;}
+  #groupFeeChallan .cr-head{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
+  #groupFeeChallan .cr-head img{width:40px; height:40px; border-radius:8px; object-fit:cover;}
+  #groupFeeChallan .cr-shop{font-weight:700; font-size:14px; color:#26332c;}
+  #groupFeeChallan .cr-sub{font-size:11px; opacity:.6;}
+  #groupFeeChallan .cr-title{text-align:center; font-family:'Fraunces',serif; font-weight:700; font-size:18px; margin:10px 0 6px;}
+  #groupFeeChallan .cr-row{display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:3px;}
+  #groupFeeChallan .cr-box{border:1px solid #e4ddcf; border-radius:12px; padding:12px; margin:10px 0;}
+  #groupFeeChallan .cr-box .cr-line{display:flex; justify-content:space-between; font-size:12.5px; padding:4px 0;}
+  #groupFeeChallan .cr-box .cr-line.total{color:#1e6f5c; font-weight:700;}
+  #groupFeeChallan .fc-table{width:100%; border-collapse:collapse; font-size:11.5px;}
+  #groupFeeChallan .fc-table th{text-align:left; font-size:10px; opacity:.55; padding:4px 3px; border-bottom:1px solid #e4ddcf;}
+  #groupFeeChallan .fc-table td{padding:5px 3px; border-bottom:1px solid #f1ede2; vertical-align:top;}
+  #groupFeeChallan .fc-badge{display:inline-block; font-size:9.5px; font-weight:700; padding:1px 6px; border-radius:20px;}
+  #groupFeeChallan .fc-badge.paid{background:#0E5C4C1a; color:#1e6f5c;}
+  #groupFeeChallan .fc-badge.unpaid{background:#b3261e1a; color:#b3261e;}
+  #groupFeeChallan .cr-note{font-size:10.5px; color:#8a4a1f; background:#fbeee0; border:1px dashed #d9a66c; border-radius:8px; padding:6px 8px; margin-top:10px;}
+  #groupFeeChallan .cr-footer{margin-top:14px; padding-top:10px; border-top:1px dashed #e4ddcf; text-align:center;}
+  #groupFeeChallan .cr-credit{font-size:9.5px; opacity:.45;}
+  #groupFeeChallan .cr-sign-wrap{margin-top:12px; float:right;}
+  #groupFeeChallan .cr-clear{clear:both;}
+  #groupFeeChallan .stu-block{border:1px solid #e4ddcf; border-radius:10px; padding:10px; margin:8px 0;}
+  #groupFeeChallan .stu-block .stu-name{font-weight:700; font-size:13px; margin-bottom:4px;}
 </style>
 </head>
 <body>
@@ -513,6 +537,7 @@
         <button type="button" class="filter-chip active" data-sf="all" onclick="setStudentFeeFilter('all')">Sab Students</button>
         <button type="button" class="filter-chip" data-sf="paid" onclick="setStudentFeeFilter('paid')">✅ Fees Paid</button>
         <button type="button" class="filter-chip" data-sf="unpaid" onclick="setStudentFeeFilter('unpaid')">⏳ Unpaid</button>
+        <button type="button" class="filter-chip" onclick="openGroupChallanPicker()">👨‍👩‍👧‍👦 Group Challan</button>
       </div>
       <div class="searchbar">
         <input id="partySearch" placeholder="Naam, number ya item dhoondein" oninput="renderPartiesList()">
@@ -786,6 +811,9 @@
       </div>
     </div>
     <div class="field"><label>Name *</label><input id="npName"></div>
+    <div class="field" id="npFamilyField" style="display:none;"><label>Family / Group Name</label><input id="npFamily" placeholder="e.g. Ali Family — same name = group challan" list="familyNamesList"><datalist id="familyNamesList"></datalist>
+      <div style="font-size:11px; opacity:.6; margin-top:4px;">Ek family ke 2+ students par same family name likhein — Group Challan banega</div>
+    </div>
     <div class="field"><label>Phone Number</label><input id="npPhone" placeholder="03xx-xxxxxxx"></div>
     <div class="field" id="npItemField"><label id="npItemLabel">Item (Mobile/AC/TV/Fridge)</label><input id="npItem" list="mobileBrandsList" placeholder="Mobile brand ya item likhein"></div>
     <datalist id="mobileBrandsList">
@@ -884,6 +912,7 @@
 <div id="invoiceReceipt"></div>
 <!-- Hidden Fee Challan template — combined Paid + Unpaid installments slip (students/tuition) -->
 <div id="feeChallan"></div>
+<div id="groupFeeChallan"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -1233,8 +1262,7 @@ function monthLabel(mk){
 }
 function studentMonthlyFee(party){
   if(!party) return 0;
-  // Students: FIXED monthly fee = totalAmount/price (installment split NAHI)
-  return Number(party.totalAmount || party.price || 0);
+  return Number(party.totalAmount||party.price||0); // fixed monthly fee
 }
 function ensureStudentFeeMonths(){
   let changed = false;
@@ -1243,19 +1271,14 @@ function ensureStudentFeeMonths(){
   parties.forEach(p=>{
     if(!isStudent(p)) return;
     if(!p.feeHistory || typeof p.feeHistory !== 'object') p.feeHistory = {};
-    const fee = studentMonthlyFee(p);
-    // Students are NOT installment — keep fixed monthly fee on the record
-    if(Number(p.installmentAmount||0) !== fee || Number(p.installmentCount||0) !== 1){
-      p.installmentAmount = fee;
-      p.installmentCount = 1;
-      p.frequency = 'Monthly';
-      changed = true;
-    }
-    // Migration once: August paid (if old balance cleared), current month Unpaid
+    // Migration: pehle se jo students balance 0 (August paid) hain unko
+    // previous month Paid, current month Unpaid set karo.
     if(!p._feeMigrated){
+      const bal = partyBalance(p.id).balance;
       if(Object.keys(p.feeHistory).length === 0){
-        const bal = partyBalance(p.id).balance;
+        const fee = studentMonthlyFee(p);
         if(bal <= 0){
+          // August (prev) paid — current unpaid
           p.feeHistory[prev] = { status:'paid', amount:fee, paidDate: prev+'-28', note:'Migrated — previous month paid' };
           p.feeHistory[cur] = { status:'unpaid', amount:fee };
         } else {
@@ -1266,29 +1289,15 @@ function ensureStudentFeeMonths(){
       p._feeMigrated = true;
       changed = true;
     }
-    // Fix any unpaid month that still has wrong (installment-split) amount
-    Object.keys(p.feeHistory).forEach(mk=>{
-      const row = p.feeHistory[mk];
-      if(row && row.status !== 'paid' && Number(row.amount||0) !== fee){
-        row.amount = fee;
-        changed = true;
-      }
-    });
-    // Har naye month auto Unpaid — fixed fee
+    // Har naye month auto Unpaid entry
     if(!p.feeHistory[cur]){
-      p.feeHistory[cur] = { status:'unpaid', amount: fee };
+      p.feeHistory[cur] = { status:'unpaid', amount: studentMonthlyFee(p) };
       changed = true;
       try{ cloudSet('parties', p); }catch(e){}
-    } else if(p.feeHistory[cur].status !== 'paid' && Number(p.feeHistory[cur].amount||0) !== fee){
-      p.feeHistory[cur].amount = fee;
-      changed = true;
     }
   });
   if(changed){
-    try{
-      parties.filter(isStudent).forEach(p=>{ try{ cloudSet('parties', p); }catch(e){} });
-      saveLocal();
-    }catch(e){}
+    try{ saveLocal(); }catch(e){}
   }
 }
 function studentMonthStatus(party, mk){
@@ -1327,6 +1336,31 @@ function studentFeeHistoryRows(party){
     };
   });
 }
+
+function fillFamilyNamesList(){
+  const dl = document.getElementById('familyNamesList');
+  if(!dl) return;
+  const names = [...new Set(parties.filter(isStudent).map(p=>(p.familyName||'').trim()).filter(Boolean))].sort();
+  dl.innerHTML = names.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+}
+function getFamilyStudents(familyName){
+  const fn = (familyName||'').trim().toLowerCase();
+  if(!fn) return [];
+  ensureStudentFeeMonths();
+  return parties.filter(p=>isStudent(p) && (p.familyName||'').trim().toLowerCase()===fn);
+}
+function listStudentFamilies(){
+  ensureStudentFeeMonths();
+  const map = {};
+  parties.filter(isStudent).forEach(p=>{
+    const fn = (p.familyName||'').trim();
+    if(!fn) return;
+    if(!map[fn]) map[fn] = [];
+    map[fn].push(p);
+  });
+  return Object.keys(map).sort().map(fn=>({ familyName: fn, members: map[fn] })).filter(g=>g.members.length>=1);
+}
+
 
 function partyBalance(partyId){
   const p = parties.find(x => x.id === partyId);
@@ -2700,6 +2734,142 @@ function downloadFeeChallanPDF(partyId){
   showToast('Fee Challan PDF downloaded');
 }
 
+/* ===================== GROUP / FAMILY FEE CHALLAN =====================
+   Ek family ke multiple students (e.g. 4 bhai) ki total fees + har student
+   ka paid/unpaid + August etc month tracking — ek hi group challan. */
+function buildGroupFeeChallanHTML(familyName){
+  ensureStudentFeeMonths();
+  const members = getFamilyStudents(familyName);
+  if(!members.length){ showToast('Is family ke students nahi mile', 'error'); return null; }
+  const headerImg = document.querySelector('header .inner img');
+  const logoSrc = headerImg ? headerImg.src : '';
+  const cur = currentMonthKey();
+  let totalMonthly = 0, totalUnpaid = 0, totalPaidAll = 0;
+  const memberBlocks = members.map(p=>{
+    const fee = studentMonthlyFee(p);
+    const unpaid = studentOutstandingFees(p);
+    const rows = studentFeeHistoryRows(p);
+    const curPaid = studentIsPaidThisMonth(p);
+    totalMonthly += fee;
+    totalUnpaid += unpaid;
+    totalPaidAll += rows.filter(r=>r.status==='paid').reduce((s,r)=>s+r.amount,0);
+    const histRows = rows.map(r=>
+      `<tr><td>${r.label}</td><td>${fmtMoney(r.amount)}</td><td><span class="fc-badge ${r.status}">${r.status==='paid'?'Paid':'Unpaid'}</span></td></tr>`
+    ).join('') || `<tr><td>${monthLabel(cur)}</td><td>${fmtMoney(fee)}</td><td><span class="fc-badge unpaid">Unpaid</span></td></tr>`;
+    return `
+      <div class="stu-block">
+        <div class="stu-name">${p.name} ${p.item?('· '+p.item):''}</div>
+        <div class="cr-row"><span>Fixed Monthly Fee</span><span class="mono">${fmtMoney(fee)}</span></div>
+        <div class="cr-row"><span>This Month (${monthLabel(cur)})</span><span><span class="fc-badge ${curPaid?'paid':'unpaid'}">${curPaid?'Paid':'Unpaid'}</span></span></div>
+        <div class="cr-row"><span>Total Unpaid (all months)</span><span class="mono" style="color:#b3261e; font-weight:700;">${fmtMoney(unpaid)}</span></div>
+        <table class="fc-table" style="margin-top:6px;">
+          <thead><tr><th>Month</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>${histRows}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+
+  const div = document.getElementById('groupFeeChallan');
+  if(!div) return null;
+  div.innerHTML = `
+    <div class="cr-head">
+      ${logoSrc ? `<img src="${logoSrc}" alt="AQG BUSINESS">` : ''}
+      <div>
+        <div class="cr-shop">AQG BUSINESS</div>
+        <div class="cr-sub">Contact: ${SHOP_PHONE} · ${SHOP_PHONE2}</div>
+        <div class="cr-sub">${SHOP_ADDRESS}</div>
+      </div>
+    </div>
+    <div class="cr-title">Family Group Fee Challan</div>
+    <div style="text-align:center; font-size:12px; opacity:.7; margin:-4px 0 12px;">${familyName} · ${members.length} Students · ${fmtDate(todayStr())}</div>
+    <div class="cr-box">
+      <div class="cr-line"><span>Students</span><span>${members.length}</span></div>
+      <div class="cr-line"><span>Combined Monthly Fee</span><span>${fmtMoney(totalMonthly)}</span></div>
+      <div class="cr-line total"><span>Total Paid (all months)</span><span>${fmtMoney(totalPaidAll)}</span></div>
+      <div class="cr-line"><span>Total Unpaid / Due</span><span style="color:#b3261e; font-weight:700;">${fmtMoney(totalUnpaid)}</span></div>
+    </div>
+    <div style="font-weight:700; font-size:12px; margin:10px 0 4px;">Student-wise detail (Aug / Sep tracking)</div>
+    ${memberBlocks}
+    ${totalUnpaid>0
+      ? `<div class="cr-note">⚠️ Family ki baqaya fees (including pehle months jaise August) waqt par jama karayein.</div>`
+      : `<div class="cr-note" style="background:#e8f5ef; border-color:#1b7a4e; color:#1b7a4e;">✅ Is family ki saari tracked fees clear hain.</div>`}
+    <div class="cr-sign-wrap"><div class="cr-sign">${typeof SIGNATURE_SVG!=='undefined'?SIGNATURE_SVG:''}<div style="font-size:10px; opacity:.6; border-top:1px solid #cbbfa0; padding-top:4px;">AQG BUSINESS</div></div></div>
+    <div class="cr-clear"></div>
+    <div class="cr-footer"><div class="cr-credit">Software By Fazul Khan Chandio — 03333909816</div></div>
+  `;
+  return div;
+}
+function shareGroupFeeChallanImage(familyName){
+  const members = getFamilyStudents(familyName);
+  if(!members.length){ showToast('Family students nahi mile', 'error'); return; }
+  const div = buildGroupFeeChallanHTML(familyName);
+  if(!div) return;
+  const prevDisplay = div.style.display;
+  div.style.display = 'block';
+  const jspdfLib = window.html2canvas;
+  if(!jspdfLib){ div.style.display = prevDisplay; showToast('Image library not loaded', 'error'); return; }
+  html2canvas(div, { scale: 2, backgroundColor: '#ffffff', useCORS: true }).then(canvas=>{
+    div.style.display = prevDisplay;
+    canvas.toBlob(blob=>{
+      if(!blob){ showToast('Image ban nahi saki', 'error'); return; }
+      const file = new File([blob], 'group-challan-'+(familyName||'family').replace(/\s+/g,'_')+'-'+todayStr()+'.jpg', {type:'image/jpeg'});
+      if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+        navigator.share({files:[file], title:'AQG Group Fee Challan', text:'Family Fee Challan — '+familyName}).catch(()=>{});
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Group Challan JPG downloaded');
+      }
+    }, 'image/jpeg', 0.95);
+  }).catch(()=>{ div.style.display = prevDisplay; showToast('Image create nahi hui', 'error'); });
+}
+function openGroupChallanPicker(){
+  ensureStudentFeeMonths();
+  const families = listStudentFamilies().filter(g=>g.members.length>=2);
+  // Also allow single-member families + students without family via multi not needed
+  if(!families.length){
+    // fallback: any family with 1+ 
+    const any = listStudentFamilies();
+    if(!any.length){
+      showToast('Pehle students par Family / Group Name set karein (Edit Student)', 'error');
+      return;
+    }
+  }
+  const list = listStudentFamilies();
+  const options = list.map(g=> g.familyName + ' (' + g.members.length + ' students)').join('\\n');
+  // Use appConfirm list via prompt-like custom - use simple select modal inline
+  const names = list.map(g=>g.familyName);
+  if(!names.length){ showToast('Koi family group nahi — student edit karke Family Name likhein', 'error'); return; }
+  // Build quick chooser with buttons in a temporary approach: use first if only one
+  if(names.length === 1){
+    shareGroupFeeChallanImage(names[0]);
+    return;
+  }
+  // Multi family: show appConfirm style chooser by sequential - use window for simplicity with app modal
+  showFamilyChallanChooser(names, list);
+}
+function showFamilyChallanChooser(names, list){
+  let html = '<div style="font-size:13px; margin-bottom:10px;">Kaun si family ka Group Challan?</div>';
+  html += names.map((n,i)=>{
+    const m = list[i].members.length;
+    return `<button class="btn btn-outline-teal btn-block btn-sm" style="margin-bottom:6px;" onclick="document.getElementById('appConfirmModal').style.display='none'; shareGroupFeeChallanImage(${JSON.stringify(n)})">${n} — ${m} students</button>`;
+  }).join('');
+  const modal = document.getElementById('appConfirmModal');
+  const titleEl = document.getElementById('appConfirmTitle');
+  const msgEl = document.getElementById('appConfirmMsg');
+  const ok = document.getElementById('appConfirmOk');
+  const cancel = document.getElementById('appConfirmCancel');
+  if(titleEl) titleEl.textContent = 'Group Fee Challan';
+  if(msgEl) msgEl.innerHTML = html;
+  if(ok) ok.style.display = 'none';
+  if(cancel){ cancel.textContent = 'Close'; cancel.onclick = ()=>{ if(ok) ok.style.display=''; cancel.textContent='Cancel'; _closeAppConfirm(false); }; }
+  if(modal) modal.style.display = 'flex';
+}
+
+
 function showView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
@@ -2909,6 +3079,9 @@ function updateNpMarkupVisibility(){
   if(advanceField) advanceField.style.display = isStudentType ? 'none' : '';
   if(stockField) stockField.style.display = isStudentType ? 'none' : '';
   if(countField) countField.style.display = isStudentType ? 'none' : '';
+  const familyField = document.getElementById('npFamilyField');
+  if(familyField) familyField.style.display = isStudentType ? '' : 'none';
+  if(isStudentType) fillFamilyNamesList();
   if(itemLabel) itemLabel.textContent = isStudentType ? 'Subject' : 'Item (Mobile/AC/TV/Fridge)';
   if(itemInput) itemInput.placeholder = isStudentType ? 'Subject likhein' : 'Mobile brand ya item likhein';
   if(itemInput) itemInput.toggleAttribute('list', !isStudentType);
@@ -2936,15 +3109,14 @@ function npCalc(){
   const advance = isStudentType ? 0 : (Number(document.getElementById('npAdvance').value)||0);
   const count = Math.max(Number(document.getElementById('npCount').value)||0, 0);
   const box = document.getElementById('npCalcResult');
-  if(price<=0){ box.innerHTML = `<span style="opacity:.5;">Enter the ${isStudentType?'fixed monthly fees':'price'} — amount will be calculated automatically</span>`; return {totalAmount:0, installmentAmount:0, markupAmount:0}; }
+  if(price<=0){ box.innerHTML = `<span style="opacity:.5;">Enter the ${isStudentType?'fees':'price'} — Total and Installment amount will be calculated automatically</span>`; return {totalAmount:0, installmentAmount:0, markupAmount:0}; }
   const markupAmount = price * markupPct / 100;
   const totalAmount = price + markupAmount;
   const remaining = Math.max(totalAmount - advance, 0);
-  // Students: fixed monthly fee = full amount (NO installment split)
-  const installmentAmount = isStudentType ? totalAmount : (count>0 ? remaining/count : 0);
+  const installmentAmount = count>0 ? remaining/count : 0;
   box.innerHTML = isStudentType ? `
-    <div class="row-between" style="font-weight:700; color:var(--teal);"><span>Fixed Monthly Fee</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
-    <div style="font-size:11px; opacity:.65; margin-top:4px;">Har month yahi fixed amount — installment nahi</div>
+    <div class="row-between" style="font-weight:700;"><span>Total Fees</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
+    ${count>0 ? `<div class="row-between" style="font-weight:700; color:var(--teal);"><span>Monthly Fee (${count})</span><span class="mono">${fmtMoney(installmentAmount)}</span></div>` : ''}
   ` : `
     <div class="row-between"><span>Payment (Price)</span><span class="mono">${fmtMoney(price)}</span></div>
     <div class="row-between"><span>+ Markup (${markupPct}%)</span><span class="mono">${fmtMoney(markupAmount)}</span></div>
@@ -2957,7 +3129,7 @@ function openAddPartyModal(){
   editingPartyId = null;
   document.getElementById('npModalTitle').textContent = 'New Party';
   document.getElementById('npSubmitBtn').textContent = 'Save Party';
-  ['npName','npPhone','npItem','npPrice'].forEach(id=>document.getElementById(id).value='');
+  ['npName','npPhone','npItem','npPrice','npFamily'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('npMarkup').value = '0';
   document.getElementById('npAdvance').value = '0';
   document.getElementById('npCount').value = '6';
@@ -2977,6 +3149,9 @@ function openEditPartyModal(id){
   document.getElementById('npModalTitle').textContent = 'Edit Party';
   document.getElementById('npSubmitBtn').textContent = 'Update';
   document.getElementById('npName').value = party.name || '';
+  const famEl = document.getElementById('npFamily');
+  if(famEl) famEl.value = party.familyName || '';
+  fillFamilyNamesList();
   document.getElementById('npPhone').value = party.phone || '';
   document.getElementById('npItem').value = party.item || '';
   // Older parties saved before Price/Markup existed only have totalAmount —
@@ -3008,11 +3183,12 @@ function submitAddParty(){
   let installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
   let installmentAmount = calc.installmentAmount;
   let totalAmount = calc.totalAmount;
-  // Student = fixed monthly fee, not installment plan
+  // Student = fixed monthly fee (not installment plan)
   if(partyType === 'student'){
     installmentCount = 1;
     installmentAmount = totalAmount;
   }
+  const familyName = partyType === 'student' ? (document.getElementById('npFamily')?.value||'').trim() : '';
   if(editingPartyId){
     const oldParty = parties.find(p=>p.id===editingPartyId);
     if(!oldParty){ closeAddPartyModal(); return; }
@@ -3021,6 +3197,7 @@ function submitAddParty(){
       partyType,
       phone: document.getElementById('npPhone').value.trim(),
       item: document.getElementById('npItem').value.trim(),
+      familyName: partyType === 'student' ? familyName : (oldParty.familyName||''),
       price: Number(price),
       markupPercent,
       gstPercent,
@@ -3036,7 +3213,10 @@ function submitAddParty(){
       const mk = currentMonthKey();
       const fee = totalAmount;
       if(!updated.feeHistory[mk] || updated.feeHistory[mk].status !== 'paid'){
-        updated.feeHistory[mk] = Object.assign({}, updated.feeHistory[mk]||{}, { status: (updated.feeHistory[mk]&&updated.feeHistory[mk].status)||'unpaid', amount: fee });
+        updated.feeHistory[mk] = Object.assign({}, updated.feeHistory[mk]||{}, {
+          status: (updated.feeHistory[mk] && updated.feeHistory[mk].status) || 'unpaid',
+          amount: fee
+        });
       }
       updated._feeMigrated = true;
     }
@@ -3052,6 +3232,7 @@ function submitAddParty(){
     partyType,
     phone: document.getElementById('npPhone').value.trim(),
     item: document.getElementById('npItem').value.trim(),
+    familyName,
     price: Number(price),
     markupPercent,
     gstPercent,
@@ -3083,10 +3264,9 @@ function submitAddParty(){
   }
   closeAddPartyModal();
   showToast('Party added — preparing invoice JPG');
-  // Party add hote hi uska invoice bill turant JPG ki soorat mein
-  // save/share ho jata hai — customer ko bhejne ke liye taiyar.
   setTimeout(()=>shareInvoiceImage(party.id), 300);
 }
+
 
 /* ===================== DASHBOARD BALANCE SHOW/HIDE ===================== */
 const BAL_HIDE_KEY = 'aqg_business_balance_hidden_v1';
@@ -3306,17 +3486,20 @@ function renderPartiesList(){
         stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick); cursor:pointer;" title="Tap to mark Paid" onclick="event.stopPropagation(); markStudentFeesPaid(${p.id})">Unpaid ${fmtMoney(dueAmt||studentMonthlyFee(p))}</span>`;
       }
     }
+    const famMembers = (isStudent(p) && (p.familyName||'').trim()) ? getFamilyStudents(p.familyName) : [];
     const studentBtns = isStudent(p) ? `
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;" onclick="event.stopPropagation();">
         ${!studentIsPaidThisMonth(p) ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="markStudentFeesPaid(${p.id})">✅ Mark Paid</button>` : `<button class="btn btn-sm" style="padding:5px 10px; font-size:11px; background:#e8f5ef; color:var(--teal); border:1px solid var(--teal);" disabled>✅ Paid</button>`}
         <button class="btn btn-sm btn-outline-teal" style="padding:5px 10px; font-size:11px;" onclick="shareFeeChallanImage(${p.id})">📄 Fee Challan</button>
+        ${famMembers.length >= 2 ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="shareGroupFeeChallanImage(${JSON.stringify(p.familyName)})">👨‍👩‍👧‍👦 Group Challan (${famMembers.length})</button>` : ''}
         <button class="btn btn-sm btn-teal" style="padding:5px 10px; font-size:11px;" onclick="sendStudentFeeWhatsApp(${p.id})">💬 WhatsApp</button>
-      </div>` : '';
+      </div>
+      ${(p.familyName||'').trim() ? `<div class="pmeta" style="margin-top:4px;">👨‍👩‍👧‍👦 Family: ${p.familyName}</div>` : ''}` : '';
     return `<div class="party-item" onclick="openParty(${p.id})">
       <div class="row-between" style="align-items:flex-start;">
         <div style="min-width:0; flex:1;">
           <div class="pname">${p.name}</div>
-          <div class="pmeta">${isStudent(p) ? ((p.item||'Student') + ' · Fixed Monthly Fee ' + fmtMoney(studentMonthlyFee(p))) : ((p.item||'') + ' · ' + fmtMoney(p.totalAmount))}</div>
+          <div class="pmeta">${p.item||''} · ${fmtMoney(p.totalAmount)}</div>
           ${p.phone ? `<div class="pmeta">📞 ${p.phone}</div>` : ''}
           ${studentBtns}
         </div>
@@ -3508,6 +3691,7 @@ function renderPartyDetail(id){
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
         ${!studentIsPaidThisMonth(party) ? `<button class="btn btn-gold btn-sm" onclick="markStudentFeesPaid(${party.id})">✅ Mark This Month Paid</button>` : `<button class="btn btn-sm" style="background:#e8f5ef; color:var(--teal); border:1px solid var(--teal);" disabled>✅ This Month Paid</button>`}
         <button class="btn btn-teal btn-sm" onclick="sendStudentFeeWhatsApp(${party.id})">💬 WhatsApp</button>
+        ${(party.familyName||'').trim() && getFamilyStudents(party.familyName).length>=2 ? `<button class="btn btn-gold btn-sm" onclick="shareGroupFeeChallanImage(${JSON.stringify(party.familyName)})">👨‍👩‍👧‍👦 Group Challan</button>` : ''}
       </div>
     </div>`;
     })() : ''}
