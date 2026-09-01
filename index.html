@@ -287,6 +287,17 @@
     10%,90%{ transform:translateX(-1px); } 20%,80%{ transform:translateX(2px); }
     30%,50%,70%{ transform:translateX(-5px); } 40%,60%{ transform:translateX(5px); }
   }
+
+  /* App confirm — no browser domain bar */
+  .app-confirm-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .app-confirm-box{background:#fff;border-radius:16px;padding:22px 20px 16px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.2);}
+  .app-confirm-title{font-weight:700;font-size:16px;margin-bottom:8px;color:var(--ink,#1c2b24);}
+  .app-confirm-msg{font-size:14px;line-height:1.45;opacity:.85;margin-bottom:18px;white-space:pre-wrap;}
+  .app-confirm-actions{display:flex;gap:10px;}
+  .app-confirm-actions button{flex:1;padding:12px;border-radius:12px;font-weight:700;font-size:14px;border:none;cursor:pointer;}
+  .app-confirm-cancel{background:#f0f2f1;color:#333;}
+  .app-confirm-ok{background:var(--teal,#1b7a4e);color:#fff;}
+
 </style>
 </head>
 <body>
@@ -429,6 +440,28 @@
       <div class="stat-grid" style="margin-bottom:12px;">
         <div class="stat-card" onclick="goToPartiesFilter('overdue')" style="--sc-accent:var(--brick);"><span class="stat-icon">⏰</span><div class="stat-label">Overdue Parties</div><div class="stat-value mono" id="statOverdue" style="color:var(--brick);">0</div></div>
         <div class="stat-card" onclick="goToPartiesFilter('atrisk')" style="--sc-accent:var(--brick);"><span class="stat-icon">🚩</span><div class="stat-label">At Risk</div><div class="stat-value mono" id="statAtRisk" style="color:var(--brick);">0</div></div>
+      </div>
+
+      <!-- Students monthly analysis — tap to open Students list -->
+      <div class="card" style="margin-bottom:12px;" id="studentFeeDashCard">
+        <div class="row-between" style="margin-bottom:10px; cursor:pointer;" onclick="goToPartiesFilter('student')">
+          <span style="font-weight:700; font-size:13px;">🎓 Students Fees Analysis</span>
+          <span style="font-size:12px; color:var(--teal); font-weight:600;">View all ›</span>
+        </div>
+        <div class="stat-grid" style="margin-bottom:8px;">
+          <div class="stat-card" onclick="goToStudentsFeeFilter('unpaid')" style="--sc-accent:var(--brick);">
+            <span class="stat-icon">⏳</span>
+            <div class="stat-label">This Month Unpaid</div>
+            <div class="stat-value mono" id="statStuUnpaid" style="color:var(--brick);">0</div>
+          </div>
+          <div class="stat-card" onclick="goToStudentsFeeFilter('paid')" style="--sc-accent:var(--teal);">
+            <span class="stat-icon">✅</span>
+            <div class="stat-label">This Month Paid</div>
+            <div class="stat-value mono" id="statStuPaid" style="color:var(--teal);">0</div>
+          </div>
+        </div>
+        <div style="font-size:11px; opacity:.6; margin-bottom:6px;">Month-wise collection (tap month → Students)</div>
+        <div id="studentMonthCollectionList"></div>
       </div>
 
       <div class="quick-tool-card" onclick="showView('calculator')">
@@ -816,6 +849,19 @@
   </div>
 </div>
 
+
+<!-- App Confirm (no domain/GitHub in popup) -->
+<div class="app-confirm-backdrop" id="appConfirmModal" style="display:none;">
+  <div class="app-confirm-box" role="dialog" aria-modal="true">
+    <div class="app-confirm-title" id="appConfirmTitle">Confirm</div>
+    <div class="app-confirm-msg" id="appConfirmMsg"></div>
+    <div class="app-confirm-actions">
+      <button type="button" class="app-confirm-cancel" id="appConfirmCancel">Cancel</button>
+      <button type="button" class="app-confirm-ok" id="appConfirmOk">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- CHANGE PIN MODAL -->
 <div class="modal-backdrop" id="changePinModal" style="display:none;">
   <div class="modal" style="text-align:center;">
@@ -914,6 +960,35 @@ function fmtDate(d){
   const dt = new Date(d + 'T00:00:00');
   return dt.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
 }
+/* Custom confirm — browser native confirm shows site domain (github.io); this does not. */
+let _appConfirmResolve = null;
+function appConfirm(message, title){
+  return new Promise(resolve => {
+    _appConfirmResolve = resolve;
+    const modal = document.getElementById('appConfirmModal');
+    const titleEl = document.getElementById('appConfirmTitle');
+    const msgEl = document.getElementById('appConfirmMsg');
+    if(titleEl) titleEl.textContent = title || 'Confirm';
+    if(msgEl) msgEl.textContent = message || '';
+    if(modal) modal.style.display = 'flex';
+  });
+}
+function _closeAppConfirm(ok){
+  const modal = document.getElementById('appConfirmModal');
+  if(modal) modal.style.display = 'none';
+  const r = _appConfirmResolve;
+  _appConfirmResolve = null;
+  if(r) r(!!ok);
+}
+document.addEventListener('DOMContentLoaded', ()=>{
+  const ok = document.getElementById('appConfirmOk');
+  const cancel = document.getElementById('appConfirmCancel');
+  const modal = document.getElementById('appConfirmModal');
+  if(ok) ok.onclick = ()=>_closeAppConfirm(true);
+  if(cancel) cancel.onclick = ()=>_closeAppConfirm(false);
+  if(modal) modal.addEventListener('click', e=>{ if(e.target===modal) _closeAppConfirm(false); });
+});
+
 function showToast(msg, kind){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -2031,7 +2106,7 @@ function addPayment(partyId, payment){
   return rec;
 }
 // Student fees: current month Unpaid -> Paid (history preserve, next month auto-unpaid)
-function markStudentFeesPaid(partyId, monthKey){
+async function markStudentFeesPaid(partyId, monthKey){
   const party = parties.find(p=>p.id===partyId);
   if(!party || !isStudent(party)) return;
   ensureStudentFeeMonths();
@@ -2043,7 +2118,8 @@ function markStudentFeesPaid(partyId, monthKey){
     return;
   }
   const amt = Number(party.feeHistory[mk].amount || studentMonthlyFee(party));
-  if(!confirm(party.name + ' — ' + monthLabel(mk) + ' fees ' + fmtMoney(amt) + ' Paid mark karein?')) return;
+  const ok = await appConfirm(party.name + ' — ' + monthLabel(mk) + ' fees ' + fmtMoney(amt) + ' Paid mark karein?', 'Fees Paid');
+  if(!ok) return;
   const rec = addPayment(partyId, {
     amount: amt,
     method: 'Cash',
@@ -2067,25 +2143,44 @@ function sendStudentFeeWhatsApp(partyId){
   const party = parties.find(p=>p.id===partyId);
   if(!party || !isStudent(party)) return;
   const num = waNumberFor(party.phone);
-  if(!num){ showToast('Student ka phone number nahi hai', 'error'); return; }
+  if(!num){ showToast('Student ka phone number nahi hai — pehle number add karein', 'error'); return; }
   ensureStudentFeeMonths();
   const mk = currentMonthKey();
   const unpaid = studentUnpaidMonths(party);
   const dueAmt = studentOutstandingFees(party);
   const fee = studentMonthlyFee(party);
-  let msg = '*AQG BUSINESS — Fee Reminder*\n——————————————\n'
-    + 'Assalam-o-Alaikum ' + party.name + ',\n\n'
-    + 'Aap ki tuition fees ki yaad dahani:\n\n'
-    + 'Subject: ' + (party.item||'-') + '\n'
-    + 'Current Month: ' + monthLabel(mk) + ' — ' + (studentIsPaidThisMonth(party)?'Paid ✅':'Unpaid ⏳') + '\n'
-    + 'Monthly Fee: ' + fmtMoney(fee) + '\n';
-  if(unpaid.length){
-    msg += 'Unpaid Months: ' + unpaid.map(monthLabel).join(', ') + '\n'
-      + 'Total Due: ' + fmtMoney(dueAmt) + '\n';
+  const isPaid = studentIsPaidThisMonth(party);
+  let msg;
+  if(isPaid){
+    // Paid student — thank you / confirmation message
+    msg = '*AQG BUSINESS — Fees Received*\n——————————————\n'
+      + 'Assalam-o-Alaikum ' + party.name + ',\n\n'
+      + 'Aap ki tuition fees wasool ho chuki hai. Shukriya!\n\n'
+      + 'Subject: ' + (party.item||'-') + '\n'
+      + 'Month: ' + monthLabel(mk) + ' — Paid ✅\n'
+      + 'Monthly Fee: ' + fmtMoney(fee) + '\n';
+    if(unpaid.length){
+      msg += '\nBaqaya months: ' + unpaid.map(monthLabel).join(', ') + '\n'
+        + 'Total Due: ' + fmtMoney(dueAmt) + '\n';
+    }
+    msg += '\nContact: ' + SHOP_PHONE + '\n'
+      + '——————————————\n*AQG BUSINESS* — Tuition Mentor';
+  } else {
+    // Unpaid student — reminder message
+    msg = '*AQG BUSINESS — Fee Reminder*\n——————————————\n'
+      + 'Assalam-o-Alaikum ' + party.name + ',\n\n'
+      + 'Aap ki tuition fees ki yaad dahani:\n\n'
+      + 'Subject: ' + (party.item||'-') + '\n'
+      + 'Current Month: ' + monthLabel(mk) + ' — Unpaid ⏳\n'
+      + 'Monthly Fee: ' + fmtMoney(fee) + '\n';
+    if(unpaid.length){
+      msg += 'Unpaid Months: ' + unpaid.map(monthLabel).join(', ') + '\n'
+        + 'Total Due: ' + fmtMoney(dueAmt) + '\n';
+    }
+    msg += '\nPlease fees waqt par jama karayein.\n'
+      + 'Contact: ' + SHOP_PHONE + '\n'
+      + '——————————————\n*AQG BUSINESS* — Tuition Mentor';
   }
-  msg += '\nPlease fees waqt par jama karayein.\n'
-    + 'Contact: ' + SHOP_PHONE + '\n'
-    + '——————————————\n*AQG BUSINESS* — Tuition Mentor';
   window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msg), '_blank');
 }
 function deletePayment(paymentId){
@@ -2136,9 +2231,9 @@ function adjustStockQty(id, delta){
   saveLocal();
   renderStockList();
 }
-function deleteStockItem(id){
+async function deleteStockItem(id){
   const item = stock.find(s=>s.id===id);
-  if(!confirm('Ye stock item delete karna hai?')) return;
+  if(!(await appConfirm('Ye stock item delete karna hai?', 'Delete Stock'))) return;
   stock = stock.filter(s=>s.id!==id);
   if(item) cloudDeleteById('stock', id);
   saveLocal();
@@ -2203,9 +2298,9 @@ function submitAddExpense(){
   renderDashboard();
   showToast('Expense recorded');
 }
-function deleteExpense(id){
+async function deleteExpense(id){
   const rec = expenses.find(e=>e.id===id);
-  if(!confirm('Ye kharcha entry delete karna hai?')) return;
+  if(!(await appConfirm('Ye kharcha entry delete karna hai?', 'Delete Expense'))) return;
   expenses = expenses.filter(e=>e.id!==id);
   if(rec) cloudDeleteById('expenses', id);
   saveLocal();
@@ -2651,6 +2746,53 @@ function goToPartiesFilter(mode){
   showView('parties');
   setPartyFilter(mode);
 }
+function goToStudentsFeeFilter(mode){
+  closeSidebar();
+  showView('parties');
+  setPartyFilter('student');
+  setStudentFeeFilter(mode || 'all');
+}
+
+/* Student fees: month-wise collection from payments + feeHistory */
+function computeStudentFeeStats(){
+  ensureStudentFeeMonths();
+  const students = parties.filter(isStudent);
+  const cur = currentMonthKey();
+  let paidThis = 0, unpaidThis = 0;
+  students.forEach(p=>{
+    if(studentIsPaidThisMonth(p)) paidThis++;
+    else unpaidThis++;
+  });
+  // Collection by month from payments to student parties
+  const studentIds = new Set(students.map(p=>p.id));
+  const byMonth = {};
+  payments.forEach(pay=>{
+    if(!studentIds.has(pay.partyId)) return;
+    const mk = monthKeyOf(pay.date);
+    if(!mk) return;
+    byMonth[mk] = (byMonth[mk]||0) + Number(pay.amount||0);
+  });
+  // Also count feeHistory paid amounts if no matching payment month (migration)
+  students.forEach(p=>{
+    const h = p.feeHistory || {};
+    Object.keys(h).forEach(mk=>{
+      if(h[mk] && h[mk].status === 'paid'){
+        // if this month has no payment recorded, still show history amount once
+        // Prefer actual payments; only fill gap if month missing
+        if(byMonth[mk] == null){
+          byMonth[mk] = Number(h[mk].amount || studentMonthlyFee(p));
+        }
+      }
+    });
+  });
+  // Ensure current + prev month keys exist for display
+  if(byMonth[cur] == null) byMonth[cur] = 0;
+  const prev = prevMonthKey(cur);
+  if(byMonth[prev] == null) byMonth[prev] = 0;
+  const months = Object.keys(byMonth).sort().reverse();
+  return { paidThis, unpaidThis, byMonth, months, totalStudents: students.length };
+}
+
 
 /* ===================== QIST CALCULATOR (Markup-based) ===================== */
 // Jab tak user khud Advance % mein kuch type na kare, Advance % apne aap
@@ -3032,6 +3174,29 @@ function renderDashboard(){
   document.getElementById('investmentRecoveryBar').style.width = investPct + '%';
   document.getElementById('statOverdue').textContent = t.overdueCount;
   document.getElementById('statAtRisk').textContent = t.atRiskCount;
+  // Students monthly fees analysis on dashboard
+  try {
+    const ss = computeStudentFeeStats();
+    const elU = document.getElementById('statStuUnpaid');
+    const elP = document.getElementById('statStuPaid');
+    if(elU) elU.textContent = ss.unpaidThis;
+    if(elP) elP.textContent = ss.paidThis;
+    const list = document.getElementById('studentMonthCollectionList');
+    if(list){
+      if(!ss.months.length){
+        list.innerHTML = '<div class="empty" style="padding:8px 0;">Abhi koi student fee collection nahi</div>';
+      } else {
+        list.innerHTML = ss.months.slice(0, 6).map(mk=>{
+          const amt = ss.byMonth[mk]||0;
+          const isCur = mk === currentMonthKey();
+          return `<div class="row-between" style="padding:8px 0; border-bottom:1px solid var(--line); cursor:pointer;" onclick="goToStudentsFeeFilter('all')">
+            <span style="font-size:13px; font-weight:${isCur?'700':'500'};">${monthLabel(mk)}${isCur?' (Current)':''}</span>
+            <span class="mono" style="font-weight:700; color:var(--teal);">${maskMoney(fmtMoney(amt))}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+  } catch(e){ console.warn('student fee dash', e); }
   updateSidebarCounts();
   renderMonthlyCharts();
 
@@ -3106,9 +3271,9 @@ function renderPartiesList(){
     }
     const studentBtns = isStudent(p) ? `
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;" onclick="event.stopPropagation();">
-        ${!studentIsPaidThisMonth(p) ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="markStudentFeesPaid(${p.id})">✅ Mark Paid</button>` : ''}
+        ${!studentIsPaidThisMonth(p) ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="markStudentFeesPaid(${p.id})">✅ Mark Paid</button>` : `<button class="btn btn-sm" style="padding:5px 10px; font-size:11px; background:#e8f5ef; color:var(--teal); border:1px solid var(--teal);" disabled>✅ Paid</button>`}
         <button class="btn btn-sm btn-outline-teal" style="padding:5px 10px; font-size:11px;" onclick="shareFeeChallanImage(${p.id})">📄 Fee Challan</button>
-        ${p.phone ? `<button class="btn btn-sm btn-teal" style="padding:5px 10px; font-size:11px;" onclick="sendStudentFeeWhatsApp(${p.id})">💬 WhatsApp</button>` : ''}
+        <button class="btn btn-sm btn-teal" style="padding:5px 10px; font-size:11px;" onclick="sendStudentFeeWhatsApp(${p.id})">💬 WhatsApp</button>
       </div>` : '';
     return `<div class="party-item" onclick="openParty(${p.id})">
       <div class="row-between" style="align-items:flex-start;">
@@ -3304,8 +3469,8 @@ function renderPartyDetail(id){
       <div style="font-size:11px; opacity:.65; margin-bottom:8px;">Har naye month fees auto Unpaid ho jati hai — pehle months ka record neeche.</div>
       ${hist}
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
-        ${!studentIsPaidThisMonth(party) ? `<button class="btn btn-gold btn-sm" onclick="markStudentFeesPaid(${party.id})">✅ Mark This Month Paid</button>` : ''}
-        ${party.phone ? `<button class="btn btn-teal btn-sm" onclick="sendStudentFeeWhatsApp(${party.id})">💬 WhatsApp Fee Reminder</button>` : ''}
+        ${!studentIsPaidThisMonth(party) ? `<button class="btn btn-gold btn-sm" onclick="markStudentFeesPaid(${party.id})">✅ Mark This Month Paid</button>` : `<button class="btn btn-sm" style="background:#e8f5ef; color:var(--teal); border:1px solid var(--teal);" disabled>✅ This Month Paid</button>`}
+        <button class="btn btn-teal btn-sm" onclick="sendStudentFeeWhatsApp(${party.id})">💬 WhatsApp</button>
       </div>
     </div>`;
     })() : ''}
