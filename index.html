@@ -1233,7 +1233,8 @@ function monthLabel(mk){
 }
 function studentMonthlyFee(party){
   if(!party) return 0;
-  return Number(party.installmentAmount||party.totalAmount||party.price||0);
+  // Students: FIXED monthly fee = totalAmount/price (installment split NAHI)
+  return Number(party.totalAmount || party.price || 0);
 }
 function ensureStudentFeeMonths(){
   let changed = false;
@@ -1242,14 +1243,19 @@ function ensureStudentFeeMonths(){
   parties.forEach(p=>{
     if(!isStudent(p)) return;
     if(!p.feeHistory || typeof p.feeHistory !== 'object') p.feeHistory = {};
-    // Migration: pehle se jo students balance 0 (August paid) hain unko
-    // previous month Paid, current month Unpaid set karo.
+    const fee = studentMonthlyFee(p);
+    // Students are NOT installment — keep fixed monthly fee on the record
+    if(Number(p.installmentAmount||0) !== fee || Number(p.installmentCount||0) !== 1){
+      p.installmentAmount = fee;
+      p.installmentCount = 1;
+      p.frequency = 'Monthly';
+      changed = true;
+    }
+    // Migration once: August paid (if old balance cleared), current month Unpaid
     if(!p._feeMigrated){
-      const bal = partyBalance(p.id).balance;
       if(Object.keys(p.feeHistory).length === 0){
-        const fee = studentMonthlyFee(p);
+        const bal = partyBalance(p.id).balance;
         if(bal <= 0){
-          // August (prev) paid — current unpaid
           p.feeHistory[prev] = { status:'paid', amount:fee, paidDate: prev+'-28', note:'Migrated — previous month paid' };
           p.feeHistory[cur] = { status:'unpaid', amount:fee };
         } else {
@@ -1260,15 +1266,29 @@ function ensureStudentFeeMonths(){
       p._feeMigrated = true;
       changed = true;
     }
-    // Har naye month auto Unpaid entry
+    // Fix any unpaid month that still has wrong (installment-split) amount
+    Object.keys(p.feeHistory).forEach(mk=>{
+      const row = p.feeHistory[mk];
+      if(row && row.status !== 'paid' && Number(row.amount||0) !== fee){
+        row.amount = fee;
+        changed = true;
+      }
+    });
+    // Har naye month auto Unpaid — fixed fee
     if(!p.feeHistory[cur]){
-      p.feeHistory[cur] = { status:'unpaid', amount: studentMonthlyFee(p) };
+      p.feeHistory[cur] = { status:'unpaid', amount: fee };
       changed = true;
       try{ cloudSet('parties', p); }catch(e){}
+    } else if(p.feeHistory[cur].status !== 'paid' && Number(p.feeHistory[cur].amount||0) !== fee){
+      p.feeHistory[cur].amount = fee;
+      changed = true;
     }
   });
   if(changed){
-    try{ saveLocal(); }catch(e){}
+    try{
+      parties.filter(isStudent).forEach(p=>{ try{ cloudSet('parties', p); }catch(e){} });
+      saveLocal();
+    }catch(e){}
   }
 }
 function studentMonthStatus(party, mk){
@@ -2916,14 +2936,15 @@ function npCalc(){
   const advance = isStudentType ? 0 : (Number(document.getElementById('npAdvance').value)||0);
   const count = Math.max(Number(document.getElementById('npCount').value)||0, 0);
   const box = document.getElementById('npCalcResult');
-  if(price<=0){ box.innerHTML = `<span style="opacity:.5;">Enter the ${isStudentType?'fees':'price'} — Total and Installment amount will be calculated automatically</span>`; return {totalAmount:0, installmentAmount:0, markupAmount:0}; }
+  if(price<=0){ box.innerHTML = `<span style="opacity:.5;">Enter the ${isStudentType?'fixed monthly fees':'price'} — amount will be calculated automatically</span>`; return {totalAmount:0, installmentAmount:0, markupAmount:0}; }
   const markupAmount = price * markupPct / 100;
   const totalAmount = price + markupAmount;
   const remaining = Math.max(totalAmount - advance, 0);
-  const installmentAmount = count>0 ? remaining/count : 0;
+  // Students: fixed monthly fee = full amount (NO installment split)
+  const installmentAmount = isStudentType ? totalAmount : (count>0 ? remaining/count : 0);
   box.innerHTML = isStudentType ? `
-    <div class="row-between" style="font-weight:700;"><span>Total Fees</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
-    ${count>0 ? `<div class="row-between" style="font-weight:700; color:var(--teal);"><span>Monthly Fee (${count})</span><span class="mono">${fmtMoney(installmentAmount)}</span></div>` : ''}
+    <div class="row-between" style="font-weight:700; color:var(--teal);"><span>Fixed Monthly Fee</span><span class="mono">${fmtMoney(totalAmount)}</span></div>
+    <div style="font-size:11px; opacity:.65; margin-top:4px;">Har month yahi fixed amount — installment nahi</div>
   ` : `
     <div class="row-between"><span>Payment (Price)</span><span class="mono">${fmtMoney(price)}</span></div>
     <div class="row-between"><span>+ Markup (${markupPct}%)</span><span class="mono">${fmtMoney(markupAmount)}</span></div>
@@ -2984,7 +3005,14 @@ function submitAddParty(){
   const markupPercent = partyType === 'student' ? 0 : Number(document.getElementById('npMarkup').value||0);
   const gstPercent = partyType === 'student' ? 0 : Number(document.getElementById('npGst').value||0);
   const advancePaid = partyType === 'student' ? 0 : Number(document.getElementById('npAdvance').value||0);
-  const installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
+  let installmentCount = Math.max(Number(document.getElementById('npCount').value)||1, 1);
+  let installmentAmount = calc.installmentAmount;
+  let totalAmount = calc.totalAmount;
+  // Student = fixed monthly fee, not installment plan
+  if(partyType === 'student'){
+    installmentCount = 1;
+    installmentAmount = totalAmount;
+  }
   if(editingPartyId){
     const oldParty = parties.find(p=>p.id===editingPartyId);
     if(!oldParty){ closeAddPartyModal(); return; }
@@ -2997,12 +3025,21 @@ function submitAddParty(){
       markupPercent,
       gstPercent,
       installmentCount,
-      totalAmount: calc.totalAmount,
+      totalAmount,
       advancePaid,
-      installmentAmount: calc.installmentAmount,
-      frequency: document.getElementById('npFrequency').value,
+      installmentAmount,
+      frequency: partyType === 'student' ? 'Monthly' : document.getElementById('npFrequency').value,
       startDate: document.getElementById('npStart').value || todayStr()
     });
+    if(partyType === 'student'){
+      if(!updated.feeHistory) updated.feeHistory = {};
+      const mk = currentMonthKey();
+      const fee = totalAmount;
+      if(!updated.feeHistory[mk] || updated.feeHistory[mk].status !== 'paid'){
+        updated.feeHistory[mk] = Object.assign({}, updated.feeHistory[mk]||{}, { status: (updated.feeHistory[mk]&&updated.feeHistory[mk].status)||'unpaid', amount: fee });
+      }
+      updated._feeMigrated = true;
+    }
     updatePartyRecord(oldParty, updated);
     closeAddPartyModal();
     showToast('Party updated');
@@ -3019,15 +3056,15 @@ function submitAddParty(){
     markupPercent,
     gstPercent,
     installmentCount,
-    totalAmount: calc.totalAmount,
+    totalAmount,
     advancePaid,
-    installmentAmount: calc.installmentAmount,
-    frequency: document.getElementById('npFrequency').value,
+    installmentAmount,
+    frequency: partyType === 'student' ? 'Monthly' : document.getElementById('npFrequency').value,
     startDate: document.getElementById('npStart').value || todayStr(),
     dateAdded: todayStr()
   };
   if(partyType === 'student'){
-    const fee = Number(calc.totalAmount||price||0);
+    const fee = Number(totalAmount||price||0);
     party.feeHistory = {};
     party.feeHistory[currentMonthKey()] = { status:'unpaid', amount: fee };
     party._feeMigrated = true;
@@ -3279,7 +3316,7 @@ function renderPartiesList(){
       <div class="row-between" style="align-items:flex-start;">
         <div style="min-width:0; flex:1;">
           <div class="pname">${p.name}</div>
-          <div class="pmeta">${p.item||''} · ${fmtMoney(p.totalAmount)}</div>
+          <div class="pmeta">${isStudent(p) ? ((p.item||'Student') + ' · Fixed Monthly Fee ' + fmtMoney(studentMonthlyFee(p))) : ((p.item||'') + ' · ' + fmtMoney(p.totalAmount))}</div>
           ${p.phone ? `<div class="pmeta">📞 ${p.phone}</div>` : ''}
           ${studentBtns}
         </div>
