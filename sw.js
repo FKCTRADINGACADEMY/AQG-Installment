@@ -1,90 +1,79 @@
-/* AQG BUSINESS — Installment & Tuition Mentor — service worker
-   Caches the app shell so the app can open offline / install as a PWA,
-   but always prefers the LIVE network version when online so updates
-   show up within seconds instead of waiting for a second app open.
-   Firebase & CDN calls always go straight to the network (live data). */
+/* AQG BUSINESS — Service Worker
+   Auto-update: jab bhi ye file ya index.html change hoga,
+   app kuch seconds mein naya version load kar lega. */
 
-/* Version string — bumped automatically to today's date+time whenever
-   this file (or index.html) is edited, so old caches always get wiped
-   on activate without anyone having to remember to change a number. */
-const CACHE_NAME = 'aqg-business-v2026.08.20-1537';
-const APP_SHELL = [
+const CACHE_VERSION = 'aqg-v2026-09-10-3';
+const CACHE_NAME = 'aqg-business-' + CACHE_VERSION;
+
+const PRECACHE = [
   './',
   './index.html',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-512-maskable.png'
+  './sw.js'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE).catch(() => {}))
   );
+  // Naya SW turant waiting se bahar — SKIP_WAITING se bhi activate hota hai
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((names) =>
+    caches.keys().then((keys) =>
       Promise.all(
-        names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n))
+        keys.filter((k) => k.startsWith('aqg-business-') && k !== CACHE_NAME)
+            .map((k) => caches.delete(k))
       )
     ).then(() => self.clients.claim())
   );
 });
 
-/* Lets the page force this worker to activate immediately after
-   a new version is downloaded, instead of waiting for all tabs to close. */
+// Page se message: foran activate karo
 self.addEventListener('message', (event) => {
-  if (event.data === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
+  if (req.method !== 'GET') return;
+
   const url = new URL(req.url);
 
-  // Only handle GET requests for our own origin (app shell).
-  // Everything else (Firebase, Google Fonts, CDN scripts, WhatsApp links) passes straight to the network.
-  if (req.method !== 'GET' || url.origin !== self.location.origin) {
-    return;
-  }
+  // HTML / navigation: network-first, phir cache (hamesha naya version try karo)
+  const isNav = req.mode === 'navigate' ||
+    (req.headers.get('accept') || '').includes('text/html') ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('/');
 
-  // NETWORK-FIRST for page navigations / the app shell HTML — always try to
-  // get the live, latest file first so updates appear right away. Only fall
-  // back to the cache if the network request fails (offline).
-  const isAppShell = req.mode === 'navigate' || url.pathname.endsWith('/index.html') || url.pathname === '/' ;
-
-  if (isAppShell) {
+  if (isNav) {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          }
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
           return res;
         })
-        .catch(() => caches.match(req))
+        .catch(() => caches.match(req).then((r) => r || caches.match('./index.html')))
     );
     return;
   }
 
-  // CACHE-FIRST (with background refresh) for the rest of the app shell
-  // (icons, manifest) — these rarely change, so instant load is preferred.
+  // Baaki assets: cache-first, network fallback
   event.respondWith(
     caches.match(req).then((cached) => {
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
+      if (cached) return cached;
+      return fetch(req).then((res) => {
+        if (res && res.ok && url.origin === self.location.origin) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      }).catch(() => cached);
     })
   );
 });

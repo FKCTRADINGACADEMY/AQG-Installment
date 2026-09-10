@@ -2135,21 +2135,25 @@ function confirmZeroDelete(promptMsg){
   return true;
 }
 function deleteParty(id){
+  const party = parties.find(p=>p.id===id);
+  if(!party) return;
   const bal = partyBalance(id);
-  if(bal.balance > 0){
-    showToast('Delete is only possible once this party\'s balance reaches 0', 'error');
-    return;
+  const due = isStudent(party) ? studentOutstandingFees(party) : bal.balance;
+  const name = party.name || 'Party';
+  let warn = 'Delete "' + name + '"?\n\nSaari ledger / fees history delete ho jayegi.';
+  if(due > 0){
+    warn += '\n\n⚠️ Warning: Is party ka baqaya ' + fmtMoney(due) + ' hai. Delete ke baad ye record nahi rahega.';
   }
-  if(!confirmZeroDelete('Are you sure you want to delete? All ledger data will be lost too.')) return;
-  const toRemove = parties.find(p=>p.id===id);
+  if(!confirmZeroDelete(warn)) return;
   parties = parties.filter(p=>p.id!==id);
   const removedPayments = payments.filter(p=>p.partyId===id);
   payments = payments.filter(p=>p.partyId!==id);
-  if(toRemove) cloudDeleteById('parties', id);
+  cloudDeleteById('parties', id);
   removedPayments.forEach(p => cloudDeleteById('payments', p.id));
   saveLocal();
   showView('parties');
-  showToast('Party removed');
+  renderPartiesList();
+  showToast(name + ' delete ho gaya');
 }
 function addPayment(partyId, payment){
   const rec = Object.assign({ id:newId(), partyId }, payment);
@@ -3483,6 +3487,7 @@ function renderPartiesList(){
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;" onclick="event.stopPropagation();">
         ${!studentIsPaidThisMonth(p) ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="markStudentFeesPaid(${p.id})">✅ Mark Paid</button>` : `<button class="btn btn-sm" style="padding:5px 10px; font-size:11px; background:#e8f5ef; color:var(--teal); border:1px solid var(--teal);" disabled>✅ Paid</button>`}
         <button class="btn btn-sm btn-outline-teal" style="padding:5px 10px; font-size:11px;" onclick="shareFeeChallanImage(${p.id})">📄 Fee Challan</button>
+        <button class="btn btn-sm" style="padding:5px 10px; font-size:11px; background:#fff; color:var(--brick); border:1px solid var(--brick);" onclick="deleteParty(${p.id})">🗑️ Delete</button>
         ${famMembers.length >= 2 ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="shareGroupFeeChallanImage(${JSON.stringify(p.familyName)})">👨‍👩‍👧‍👦 Group Challan (${famMembers.length})</button>` : ''}
         <button class="btn btn-sm btn-teal" style="padding:5px 10px; font-size:11px;" onclick="sendStudentFeeWhatsApp(${p.id})">💬 WhatsApp</button>
       </div>
@@ -3501,6 +3506,7 @@ function renderPartiesList(){
           ${p.atRisk ? `<span class="stamp" style="color:var(--brick); border-color:var(--brick);">🚩 At Risk</span>` : ''}
           ${stampHtml}
           <button class="icon-btn" title="Party edit karein" onclick="event.stopPropagation(); openEditPartyModal(${p.id})">✏️</button>
+          <button class="icon-btn" title="Delete" style="color:var(--brick);" onclick="event.stopPropagation(); deleteParty(${p.id})">🗑️</button>
         </div>
       </div>
     </div>`;
@@ -3715,9 +3721,7 @@ function renderPartyDetail(id){
 
     <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center;">
       <button class="btn btn-sm" style="background:none; color:var(--teal); opacity:.85; padding:0;" onclick="openEditPartyModal(${party.id})">✏️ Edit Party</button>
-      ${(isStudent(party) ? studentOutstandingFees(party)<=0 : bal.balance<=0)
-        ? `<button class="btn btn-sm" style="background:none; color:var(--brick); opacity:.7; padding:0;" onclick="deleteParty(${party.id})">🗑️ Delete Party</button>`
-        : `<span style="font-size:11px; opacity:.5;" title="Delete will be available only once ${isStudent(party) ? 'fees are' : 'the balance is'} cleared">🔒 Delete (locked until ${isStudent(party) ? 'fees are cleared' : 'balance is cleared'})</span>`}
+      <button class="btn btn-sm" style="background:none; color:var(--brick); opacity:.85; padding:0;" onclick="deleteParty(${party.id})">🗑️ Delete Party</button>
     </div>
   `;
 }
