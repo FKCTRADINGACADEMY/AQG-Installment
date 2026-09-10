@@ -2,7 +2,7 @@
    Auto-update: jab bhi ye file ya index.html change hoga,
    app kuch seconds mein naya version load kar lega. */
 
-const CACHE_VERSION = 'aqg-v2026-09-10-3';
+const CACHE_VERSION = 'aqg-v2026-09-10-4';
 const CACHE_NAME = 'aqg-business-' + CACHE_VERSION;
 
 const PRECACHE = [

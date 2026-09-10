@@ -376,11 +376,13 @@
 
     <!-- LOGIN MODE -->
     <div id="loginEnter">
-      <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Enter your PIN</div>
+      <div style="font-size:13px; font-weight:600; margin-bottom:6px;" id="loginTitle">PIN enter karein</div>
+      <div style="font-size:11px; opacity:.65; margin:-2px 0 10px; line-height:1.35;" id="loginSubHint">Admin PIN = full access · Viewer PIN = sirf records dekhna</div>
       <div class="pin-dots" id="loginDots"><span></span><span></span><span></span><span></span></div>
       <div class="login-error" id="loginError"></div>
       <div class="keypad" id="loginKeypad"></div>
       <button class="login-link" id="biometricLoginBtn" style="display:none;" onclick="loginWithBiometric()">👆 Unlock with Fingerprint / Face</button>
+      <button class="login-link" id="goToSetupLink" style="display:none;" onclick="goToAdminSetup()">Admin hoon? Naya Admin PIN set karein</button>
       <button class="login-link" onclick="startForgotPin()">Forgot PIN?</button>
     </div>
 
@@ -393,7 +395,7 @@
       <button class="login-link" onclick="cancelForgotPin()">Wapas Login par jayein</button>
     </div>
 
-    <div class="login-hint">🔒 Admin PIN = full access · Viewer PIN = read-only (records dekhna)</div>
+    <div class="login-hint">🔒 Admin PIN = full access · Viewer PIN = sirf records dekhna (dost ko Viewer PIN dein)</div>
   </div>
 </div>
 
@@ -4069,17 +4071,33 @@ function initAuth(){
 }
 
 function showPinOrSetup(){
+  // Hamesha PIN entry screen dikhao — friend seedha Viewer PIN enter kar sake.
+  // Agar is device pe Admin PIN abhi set nahi, to "Admin setup" link dikhao.
   const hasPin = !!localStorage.getItem(PIN_KEY);
-  if(hasPin){
-    document.getElementById('loginSetup').style.display='none';
-    document.getElementById('loginEnter').style.display='block';
-    buildKeypad(document.getElementById('loginKeypad'), loginDigit, loginDelete);
-    updateBiometricButton();
+  document.getElementById('loginSetup').style.display='none';
+  document.getElementById('loginEnter').style.display='block';
+  buildKeypad(document.getElementById('loginKeypad'), loginDigit, loginDelete);
+  updateBiometricButton();
+  const setupLink = document.getElementById('goToSetupLink');
+  if(setupLink) setupLink.style.display = hasPin ? 'none' : 'block';
+  const title = document.getElementById('loginTitle');
+  const hint = document.getElementById('loginSubHint');
+  if(!hasPin){
+    if(title) title.textContent = 'Viewer PIN enter karein';
+    if(hint) hint.textContent = 'Admin ne jo Viewer PIN banayi hai woh yahan likhein — sirf records dekhne ke liye';
   } else {
-    document.getElementById('loginEnter').style.display='none';
-    document.getElementById('loginSetup').style.display='block';
-    buildKeypad(document.getElementById('setupKeypad'), setupDigit, setupDelete);
+    if(title) title.textContent = 'PIN enter karein';
+    if(hint) hint.textContent = 'Admin PIN = full access · Viewer PIN = sirf records dekhna';
   }
+}
+function goToAdminSetup(){
+  document.getElementById('loginEnter').style.display='none';
+  document.getElementById('loginSetup').style.display='block';
+  setupBuf=''; setupStage=1; setupFirstPin='';
+  updateDots('setupDots1', 0);
+  const stageEl = document.getElementById('setupStage');
+  if(stageEl) stageEl.textContent = 'Enter PIN';
+  buildKeypad(document.getElementById('setupKeypad'), setupDigit, setupDelete);
 }
 
 /* ---- Firebase email/password login (once per device) ---- */
@@ -4216,8 +4234,19 @@ async function loginDigit(d){
       match = (await secureHash(attemptedPin)) === stored;
     }
     // If admin PIN didn't match, try Viewer PIN (read-only access)
+    // Pehle local, phir cloud (taake dost doosre device pe bhi Admin ki Viewer PIN use kar sake)
     if(!match){
-      const viewerStored = localStorage.getItem(VIEWER_PIN_KEY);
+      let viewerStored = localStorage.getItem(VIEWER_PIN_KEY);
+      if(!viewerStored && BIZ_DOC){
+        try{
+          const snap = await BIZ_DOC.get();
+          if(snap.exists && snap.data().viewerPinHash){
+            viewerStored = snap.data().viewerPinHash;
+            // local cache bhi rakh lo taake next time fast ho
+            localStorage.setItem(VIEWER_PIN_KEY, viewerStored);
+          }
+        }catch(e){ console.warn('Cloud viewer PIN load failed', e); }
+      }
       if(viewerStored){
         const viewerMatch = isLegacyHash(viewerStored)
           ? (simpleHash(attemptedPin) === viewerStored)
@@ -4297,14 +4326,9 @@ function lockApp(){
   if(badge) badge.style.display = 'none';
   loginBuf='';
   document.getElementById('loginForgot').style.display='none';
-  if(localStorage.getItem(PIN_KEY)){
-    document.getElementById('loginSetup').style.display='none';
-    document.getElementById('loginEnter').style.display='block';
-    updateDots('loginDots',0);
-    buildKeypad(document.getElementById('loginKeypad'), loginDigit, loginDelete);
-    updateBiometricButton();
-    if(isLockedOut()) document.getElementById('loginError').textContent = lockoutMessage();
-  }
+  showPinOrSetup();
+  updateDots('loginDots',0);
+  if(isLockedOut()) document.getElementById('loginError').textContent = lockoutMessage();
 }
 
 /* ---- forgot pin ---- */
@@ -4354,8 +4378,16 @@ function openSetViewerPin(){
     if(isLegacyHash(stored)) ok = simpleHash(adminPin) === stored;
     else ok = (await secureHash(adminPin)) === stored;
     if(!ok){ showToast('Admin PIN galat — Viewer PIN set nahi hua', 'error'); return; }
-    localStorage.setItem(VIEWER_PIN_KEY, await secureHash(p));
-    showToast('Viewer PIN set ✅ — is PIN se login = Read-only mode');
+    const hash = await secureHash(p);
+    localStorage.setItem(VIEWER_PIN_KEY, hash);
+    // Cloud pe bhi save — taake dost doosre phone/PC pe bhi yahi Viewer PIN use kar sake
+    if(BIZ_DOC){
+      BIZ_DOC.set({ viewerPinHash: hash }, { merge:true })
+        .then(()=> showToast('Viewer PIN set ✅ (is device + cloud) — dost is PIN se login kar sakta hai'))
+        .catch(()=> showToast('Viewer PIN local set ✅ (cloud save fail — internet check karein)'));
+    } else {
+      showToast('Viewer PIN set ✅ — is PIN se login = Read-only mode');
+    }
   })();
 }
 /* ---- change pin (Settings/Backup) ---- */
