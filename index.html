@@ -3066,8 +3066,8 @@ function updateNpMarkupVisibility(){
   const familyField = document.getElementById('npFamilyField');
   if(familyField) familyField.style.display = isStudentType ? '' : 'none';
   if(isStudentType) fillFamilyNamesList();
-  if(itemLabel) itemLabel.textContent = isStudentType ? 'Subject' : 'Item (Mobile/AC/TV/Fridge)';
-  if(itemInput) itemInput.placeholder = isStudentType ? 'Subject likhein' : 'Mobile brand ya item likhein';
+  if(itemLabel) itemLabel.textContent = isStudentType ? 'Subject (Math / English / Physics etc.)' : 'Item (Mobile/AC/TV/Fridge)';
+  if(itemInput) itemInput.placeholder = isStudentType ? 'e.g. Math, English, Computer — month mat likhein' : 'Mobile brand ya item likhein';
   if(itemInput) itemInput.toggleAttribute('list', !isStudentType);
   if(priceLabel) priceLabel.textContent = isStudentType ? 'Fees *' : 'Price *';
   if(isStudentType){
@@ -3464,13 +3464,21 @@ function renderPartiesList(){
     // Student: monthly paid/unpaid (current month). Tap Unpaid -> Mark Paid.
     if(isStudent(p) && !payable){
       const dueAmt = studentOutstandingFees(p);
-      if(studentIsPaidThisMonth(p)){
+      const unpaidMonths = studentUnpaidMonths(p);
+      const monthsCount = unpaidMonths.length;
+      if(studentIsPaidThisMonth(p) && monthsCount === 0){
         stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">Paid ${monthLabel(currentMonthKey())}</span>`;
+      } else if(monthsCount > 1){
+        stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick); cursor:pointer;" title="${unpaidMonths.map(monthLabel).join(', ')}" onclick="event.stopPropagation(); markStudentFeesPaid(${p.id})">${monthsCount} months pending · ${fmtMoney(dueAmt)}</span>`;
       } else {
         stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick); cursor:pointer;" title="Tap to mark Paid" onclick="event.stopPropagation(); markStudentFeesPaid(${p.id})">Unpaid ${fmtMoney(dueAmt||studentMonthlyFee(p))}</span>`;
       }
     }
     const famMembers = (isStudent(p) && (p.familyName||'').trim()) ? getFamilyStudents(p.familyName) : [];
+    const unpaidMonthsList = isStudent(p) ? studentUnpaidMonths(p) : [];
+    const pendingMonthsHint = unpaidMonthsList.length > 1
+      ? `<div class="pmeta" style="margin-top:3px; color:var(--brick); font-weight:600;">⏳ Pending: ${unpaidMonthsList.map(monthLabel).join(', ')}</div>`
+      : '';
     const studentBtns = isStudent(p) ? `
       <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;" onclick="event.stopPropagation();">
         ${!studentIsPaidThisMonth(p) ? `<button class="btn btn-sm btn-gold" style="padding:5px 10px; font-size:11px;" onclick="markStudentFeesPaid(${p.id})">✅ Mark Paid</button>` : `<button class="btn btn-sm" style="padding:5px 10px; font-size:11px; background:#e8f5ef; color:var(--teal); border:1px solid var(--teal);" disabled>✅ Paid</button>`}
@@ -3485,6 +3493,7 @@ function renderPartiesList(){
           <div class="pname">${p.name}</div>
           <div class="pmeta">${p.item||''} · ${fmtMoney(p.totalAmount)}</div>
           ${p.phone ? `<div class="pmeta">📞 ${p.phone}</div>` : ''}
+          ${pendingMonthsHint}
           ${studentBtns}
         </div>
         <div style="display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
@@ -3517,8 +3526,12 @@ function renderPartyDetail(id){
   let stampHtml;
   if(isStudent(party) && !payable){
     const dueAmt = studentOutstandingFees(party);
-    if(studentIsPaidThisMonth(party)){
+    const unpaidMonths = studentUnpaidMonths(party);
+    const monthsCount = unpaidMonths.length;
+    if(studentIsPaidThisMonth(party) && monthsCount === 0){
       stampHtml = `<span class="stamp" style="color:var(--teal); border-color:var(--teal);">Paid ${monthLabel(currentMonthKey())}</span>`;
+    } else if(monthsCount > 1){
+      stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick); cursor:pointer;" title="${unpaidMonths.map(monthLabel).join(', ')}" onclick="markStudentFeesPaid(${party.id})">${monthsCount} months pending · ${fmtMoney(dueAmt)}</span>`;
     } else {
       stampHtml = `<span class="stamp" style="color:var(--brick); border-color:var(--brick); cursor:pointer;" title="Tap to mark Paid" onclick="markStudentFeesPaid(${party.id})">Unpaid ${fmtMoney(dueAmt||studentMonthlyFee(party))}</span>`;
     }
@@ -3654,6 +3667,9 @@ function renderPartyDetail(id){
       const fee = studentMonthlyFee(party);
       const rows = studentFeeHistoryRows(party);
       const unpaid = studentOutstandingFees(party);
+      const unpaidList = studentUnpaidMonths(party);
+      const monthsCount = unpaidList.length;
+      const pendingNames = unpaidList.map(monthLabel).join(', ');
       const hist = rows.map(r=>`<div class="ledger-row"><span>${r.label}</span><span class="mono" style="font-weight:700; color:${r.status==='paid'?'var(--teal)':'var(--brick)'};">${r.status==='paid'?'✅ Paid':'⏳ Unpaid'} ${fmtMoney(r.amount)}</span></div>`).join('') || '<div class="empty">No fee months yet</div>';
       return `
     <div class="card">
@@ -3666,11 +3682,21 @@ function renderPartyDetail(id){
         <span style="opacity:.7;">This Month (${monthLabel(currentMonthKey())})</span>
         <span class="mono" style="font-weight:700; color:${studentIsPaidThisMonth(party)?'var(--teal)':'var(--brick)'};">${studentIsPaidThisMonth(party)?'✅ Paid':'⏳ Unpaid'}</span>
       </div>
-      <div class="row-between" style="font-size:12px; margin-bottom:10px;">
-        <span style="opacity:.7;">Total Unpaid</span>
-        <span class="mono" style="font-weight:700; color:var(--brick);">${fmtMoney(unpaid)}</span>
+      <div class="row-between" style="font-size:12px; margin-bottom:6px;">
+        <span style="opacity:.7;">Pending Months</span>
+        <span class="mono" style="font-weight:700; color:var(--brick);">${monthsCount > 0 ? monthsCount + ' month' + (monthsCount>1?'s':'') : '0'}</span>
       </div>
-      <div style="font-size:11px; opacity:.65; margin-bottom:8px;">Har naye month fees auto Unpaid ho jati hai — pehle months ka record neeche.</div>
+      ${monthsCount > 0 ? `<div style="background:#b3261e12; border:1px solid #b3261e33; border-radius:10px; padding:10px 12px; margin-bottom:10px;">
+        <div style="font-size:11px; font-weight:700; color:var(--brick); margin-bottom:4px;">⏳ Pending: ${pendingNames}</div>
+        <div class="row-between" style="font-size:13px;">
+          <span style="opacity:.8;">Total Unpaid</span>
+          <span class="mono" style="font-weight:700; color:var(--brick);">${fmtMoney(unpaid)}</span>
+        </div>
+      </div>` : `<div class="row-between" style="font-size:12px; margin-bottom:10px;">
+        <span style="opacity:.7;">Total Unpaid</span>
+        <span class="mono" style="font-weight:700; color:var(--teal);">Rs. 0</span>
+      </div>`}
+      <div style="font-size:11px; opacity:.65; margin-bottom:8px;">Har naye month fees auto Unpaid ho jati hai — purani unpaid fees add hoti rehti hain. Neeche poora record:</div>
       ${hist}
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
         ${!studentIsPaidThisMonth(party) ? `<button class="btn btn-gold btn-sm" onclick="markStudentFeesPaid(${party.id})">✅ Mark This Month Paid</button>` : `<button class="btn btn-sm" style="background:#e8f5ef; color:var(--teal); border:1px solid var(--teal);" disabled>✅ This Month Paid</button>`}
